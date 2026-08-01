@@ -307,7 +307,8 @@ MVP는 `kube-prometheus-stack` Helm chart를 고정된 values와 함께 설치�
 ### Prometheus
 
 - Mock Exporter Service를 scrape한다.
-- ServiceMonitor 또는 명시적인 scrape config를 사용한다.
+- `gpu-lab-monitoring` namespace의 ServiceMonitor가 `gpu-lab-system` namespace의 exporter Service를 `namespaceSelector`로 가리키게 한다.
+- Prometheus values에서 ServiceMonitor selector와 namespace selector를 명시해 chart의 기본 release-label 필터에 의존하지 않는다.
 - `gpu_lab_` metric 기반의 기본 alert rule을 provision한다.
 - alert 예시: high utilization, VRAM pressure, XID present, exporter target down, pending GPU workload.
 
@@ -513,3 +514,10 @@ resource request
 - release artifact: OS별 CLI binary와 source archive
 
 현재 저장소는 이 정책을 결정하기 전의 설계 단계이므로, 라이선스를 추정하여 추가하지 않았습니다.
+
+## 14. 설계 참고 자료
+
+- [Kubernetes Device Plugins](https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/device-plugins/)
+- [kind Configuration](https://kind.sigs.k8s.io/docs/user/configuration/)
+- [kind Quick Start — Multi-node clusters](https://kind.sigs.k8s.io/docs/user/quick-start/)
+- [Prometheus Community kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack)
