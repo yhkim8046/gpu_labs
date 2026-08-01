@@ -1,0 +1,18 @@
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Go
+bin/
+dist/
+coverage.out
+
+# Local lab state
+.gpu-lab/
+.kind/
+kubeconfig*
+
+# Generated files
+deploy/generated/
+docs/generated/
