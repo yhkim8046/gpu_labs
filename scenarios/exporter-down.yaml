@@ -1,0 +1,9 @@
+apiVersion: gpu-lab.io/v1alpha1
+kind: Scenario
+metadata:
+  name: exporter-down
+spec:
+  description: Exporter endpoints return an unavailable response
+  actions:
+    - type: exporter_fault
+      mode: unavailable

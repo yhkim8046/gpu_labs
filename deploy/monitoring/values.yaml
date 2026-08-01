@@ -1,0 +1,38 @@
+alertmanager:
+  enabled: false
+
+kubeControllerManager:
+  enabled: false
+
+kubeEtcd:
+  enabled: false
+
+kubeProxy:
+  enabled: false
+
+kubeScheduler:
+  enabled: false
+
+nodeExporter:
+  enabled: false
+
+grafana:
+  enabled: true
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL
+      label: grafana_dashboard
+      labelValue: "1"
+
+prometheus:
+  enabled: true
+  prometheusSpec:
+    scrapeInterval: 15s
+    evaluationInterval: 15s
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelector: {}
+    serviceMonitorNamespaceSelector: {}
+    ruleSelectorNilUsesHelmValues: false
+    ruleSelector: {}
+    ruleNamespaceSelector: {}

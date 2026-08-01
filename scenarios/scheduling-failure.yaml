@@ -1,0 +1,9 @@
+apiVersion: gpu-lab.io/v1alpha1
+kind: Scenario
+metadata:
+  name: scheduling-failure
+spec:
+  description: A workload requests more GPUs than any fake node provides
+  actions:
+    - type: create_pending_workload
+      gpu_count: 9

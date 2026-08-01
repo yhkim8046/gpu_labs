@@ -1,0 +1,10 @@
+apiVersion: gpu-lab.io/v1alpha1
+kind: Scenario
+metadata:
+  name: vram-pressure
+spec:
+  description: Synthetic VRAM pressure on every fake GPU
+  metrics:
+    gpu_memory_used_percent: 92
+    temperature_celsius: 72
+  actions: []

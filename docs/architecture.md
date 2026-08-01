@@ -1,8 +1,8 @@
 # gpu-lab Architecture Proposal
 
-상태: Phase 1 — 설계 검토용
+상태: Phase 1 설계를 기반으로 한 MVP 구현 문서
 
-이 문서는 구현 전에 합의해야 할 runtime architecture, 책임 경계, metric contract, scenario contract를 정의합니다. 이 단계에서는 애플리케이션 코드와 Kubernetes manifest를 작성하지 않습니다.
+이 문서는 runtime architecture, 책임 경계, metric contract, scenario contract를 정의합니다. 현재 구현은 이 문서의 contract를 기준으로 진행 중이며, kind/Helm 기반 full e2e는 해당 도구가 설치된 환경에서 검증합니다.
 
 ## 1. 목표와 비목표
 
@@ -335,6 +335,27 @@ CLI binary 이름은 `gpu-lab`이며 Go로 구현합니다. 외부 command 실�
 | `gpu-lab scenario list` | 내장 YAML scenario 목록 표시 |
 | `gpu-lab scenario run <name>` | scenario 검증·적용·상태 확인 |
 | `gpu-lab scenario reset` | `normal` 복구 |
+| `gpu-lab helm <official-helm-args...>` | 로컬 공식 Helm CLI를 그대로 실행 |
+
+### Official CLI passthrough
+
+Helm chart repository, plugin, OCI registry, authentication, version 선택은 공식 Helm CLI의 책임으로 둡니다. gpu-lab은 Helm client를 재구현하거나 chart archive를 자체적으로 다운로드하지 않습니다.
+
+```bash
+gpu-lab helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+gpu-lab helm repo update
+gpu-lab helm search repo prometheus-community/kube-prometheus-stack
+gpu-lab helm install gpu-lab-monitoring prometheus-community/kube-prometheus-stack \
+  --namespace gpu-lab-monitoring --create-namespace
+```
+
+구현 규칙:
+
+- `gpu-lab helm` 뒤의 인자는 파싱·변경하지 않고 `helm` 프로세스에 순서대로 전달한다.
+- shell 문자열을 만들지 않고 `exec.CommandContext`의 argument 배열로 실행한다.
+- `gpu-lab create`가 monitoring stack을 설치할 때도 같은 runner를 사용한다.
+- Helm이 없으면 doctor가 공식 설치 문서와 `gpu-lab helm` 사용 조건을 안내한다.
+- kube context나 release 이름을 자동으로 덮어쓰지 않는다. 자동화가 필요한 `create` 경로만 명시된 values와 release 이름을 사용한다.
 
 ### Idempotency
 

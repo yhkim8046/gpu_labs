@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gpu-lab-demo
+  labels:
+    app.kubernetes.io/part-of: gpu-lab
+    app.kubernetes.io/managed-by: gpu-lab

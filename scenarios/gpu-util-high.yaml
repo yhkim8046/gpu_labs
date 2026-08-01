@@ -1,0 +1,11 @@
+apiVersion: gpu-lab.io/v1alpha1
+kind: Scenario
+metadata:
+  name: gpu-util-high
+spec:
+  description: Sustained high GPU utilization and thermal pressure
+  metrics:
+    gpu_utilization_percent: 95
+    temperature_celsius: 78
+    power_watts: 220
+  actions: []

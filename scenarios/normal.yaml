@@ -1,0 +1,7 @@
+apiVersion: gpu-lab.io/v1alpha1
+kind: Scenario
+metadata:
+  name: normal
+spec:
+  description: Stable baseline for all fake GPUs
+  actions: []

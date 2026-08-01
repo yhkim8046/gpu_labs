@@ -1,0 +1,21 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: mock-gpu-exporter
+  namespace: gpu-lab-monitoring
+  labels:
+    app.kubernetes.io/name: mock-gpu-exporter
+    app.kubernetes.io/part-of: gpu-lab
+    app.kubernetes.io/managed-by: gpu-lab
+spec:
+  namespaceSelector:
+    matchNames:
+      - gpu-lab-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mock-gpu-exporter
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s

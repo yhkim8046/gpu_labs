@@ -1,0 +1,61 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: gpu-lab-alerts
+  namespace: gpu-lab-monitoring
+  labels:
+    app.kubernetes.io/name: gpu-lab-alerts
+    app.kubernetes.io/part-of: gpu-lab
+    app.kubernetes.io/managed-by: gpu-lab
+spec:
+  groups:
+    - name: gpu-lab.rules
+      rules:
+        - alert: GPULabHighUtilization
+          expr: avg by (node) (gpu_lab_gpu_utilization_percent) > 80
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "GPU utilization is high on {{ $labels.node }}"
+            description: "Synthetic GPU utilization has stayed above 80 percent for one minute."
+        - alert: GPULabVRAMPressure
+          expr: (gpu_lab_gpu_memory_used_bytes / gpu_lab_gpu_memory_total_bytes) > 0.9
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "VRAM pressure on {{ $labels.node }}"
+            description: "Synthetic VRAM usage is above 90 percent."
+        - alert: GPULabXIDPresent
+          expr: gpu_lab_gpu_xid_code > 0
+          for: 30s
+          labels:
+            severity: critical
+          annotations:
+            summary: "Synthetic GPU XID on {{ $labels.node }}"
+            description: "Inspect the XID code and GPU health metric."
+        - alert: GPULabGPUUnhealthy
+          expr: gpu_lab_gpu_health == 0
+          for: 30s
+          labels:
+            severity: critical
+          annotations:
+            summary: "Synthetic GPU unhealthy on {{ $labels.node }}"
+            description: "The mock exporter reports an unhealthy virtual GPU."
+        - alert: GPULabExporterDown
+          expr: up{service="mock-gpu-exporter"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "GPU exporter is down on {{ $labels.instance }}"
+            description: "Prometheus cannot scrape the mock GPU exporter."
+        - alert: GPULabSchedulingFailure
+          expr: kube_pod_status_phase{namespace="gpu-lab-demo", pod="gpu-lab-scheduling-failure", phase="Pending"} == 1
+          for: 30s
+          labels:
+            severity: warning
+          annotations:
+            summary: "GPU workload is Pending"
+            description: "The workload requests more fake GPUs than any node can provide."
