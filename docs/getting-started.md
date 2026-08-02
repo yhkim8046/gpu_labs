@@ -65,10 +65,14 @@ GPU_LAB_HELM_CHART_VERSION=87.21.0 go run ./cmd/gpu-lab create
 
 ```bash
 # release image 사용
-GPU_LAB_IMAGE_SOURCE=registry GPU_LAB_IMAGE=ghcr.io/<github-owner>/gpu-lab-runtime:1.0.0 gpu-lab create
+gpu-lab create --registry
+
+# 특정 release image 사용
+gpu-lab create --registry --image ghcr.io/<github-owner>/gpu-lab-runtime:1.0.0
 
 # local image build 사용
-GPU_LAB_IMAGE_SOURCE=local GPU_LAB_IMAGE=gpu-lab:dev go run ./cmd/gpu-lab create
+gpu-lab create --local
+make dev-create
 ```
 
 ## 공식 Helm CLI 사용

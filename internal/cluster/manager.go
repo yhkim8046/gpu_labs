@@ -51,8 +51,7 @@ func NewManager(r runner.Runner) Manager {
 		if imageSource == ImageSourceLocal || (imageSource == ImageSourceAuto && version.Version == "dev") {
 			image = LocalImageName
 		} else {
-			repository := envOr("GPU_LAB_RUNTIME_IMAGE_REPOSITORY", DefaultImageRepo)
-			image = fmt.Sprintf("%s:%s", strings.TrimRight(repository, "/"), strings.TrimPrefix(version.Version, "v"))
+			image = RuntimeImageForVersion()
 		}
 	}
 	return Manager{
@@ -64,6 +63,15 @@ func NewManager(r runner.Runner) Manager {
 		Workdir:      ".",
 		Kubeconfig:   kubeconfig.New(r),
 	}
+}
+
+func RuntimeImageForVersion() string {
+	repository := envOr("GPU_LAB_RUNTIME_IMAGE_REPOSITORY", DefaultImageRepo)
+	tag := strings.TrimPrefix(version.Version, "v")
+	if tag == "" {
+		tag = "dev"
+	}
+	return fmt.Sprintf("%s:%s", strings.TrimRight(repository, "/"), tag)
 }
 
 func (m Manager) Create(ctx context.Context) error {

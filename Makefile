@@ -1,4 +1,4 @@
-.PHONY: build test fmt docker-build e2e release-snapshot
+.PHONY: build test fmt docker-build dev-create e2e release-snapshot
 
 VERSION_PACKAGE := github.com/gpu-lab/gpu-lab/internal/version
 VERSION ?= dev
@@ -17,6 +17,9 @@ fmt:
 
 docker-build:
 	docker build -t gpu-lab:dev .
+
+dev-create:
+	GPU_LAB_IMAGE_SOURCE=local go run ./cmd/gpu-lab create --local
 
 e2e:
 	./test/e2e/run.sh

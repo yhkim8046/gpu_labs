@@ -73,6 +73,7 @@ gpu-lab helm install gpu-lab-monitoring prometheus-community/kube-prometheus-sta
 gpu-lab version
 gpu-lab doctor
 gpu-lab create
+gpu-lab create --local       # developer local-build mode
 ```
 
 Git tag `v1.0.0`을 push하면 GitHub Actions가 GHCR에 다음 multi-arch runtime image를 publish합니다.
@@ -81,7 +82,7 @@ Git tag `v1.0.0`을 push하면 GitHub Actions가 GHCR에 다음 multi-arch runti
 ghcr.io/<github-owner>/gpu-lab-runtime:1.0.0
 ```
 
-Release binary는 CLI version에 맞는 GHCR image를 자동으로 사용합니다. 소스에서 `go run`을 실행하거나 `GPU_LAB_IMAGE_SOURCE=local`을 지정하면 local `gpu-lab:dev` image를 build합니다.
+Release binary는 CLI version에 맞는 GHCR image를 자동으로 사용합니다. 소스에서 `go run`을 실행하거나 `gpu-lab create --local`을 지정하면 local `gpu-lab:dev` image를 build합니다.
 
 ## 소스에서 실행하는 명령
 

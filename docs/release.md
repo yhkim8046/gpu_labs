@@ -139,7 +139,7 @@ GPU_LAB_RUNTIME_IMAGE_REPOSITORY=ghcr.io/<github-owner>/gpu-lab-runtime gpu-lab 
 개발자가 release binary로 local image를 테스트하려면 다음처럼 지정합니다.
 
 ```bash
-GPU_LAB_IMAGE_SOURCE=local GPU_LAB_IMAGE=gpu-lab:dev gpu-lab create
+gpu-lab create --local
 ```
 
 처음 publish한 뒤 GitHub의 `Packages`에서 `gpu-lab-runtime` package를 repository에 연결하고 visibility를 `Public`으로 설정해야 수강생이 로그인 없이 pull할 수 있습니다. GitHub Container Registry public package는 anonymous pull을 지원합니다.

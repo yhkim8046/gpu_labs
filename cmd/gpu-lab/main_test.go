@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/gpu-lab/gpu-lab/internal/cluster"
 )
 
 func TestHelmPassthrough(t *testing.T) {
@@ -51,5 +53,32 @@ func TestVersionCommand(t *testing.T) {
 	}
 	if got := strings.TrimSpace(stdout.String()); !strings.HasPrefix(got, "gpu-lab ") {
 		t.Fatalf("version output = %q, want gpu-lab prefix", got)
+	}
+}
+
+func TestParseCreateArgs(t *testing.T) {
+	options, err := parseCreateArgs([]string{"--local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.imageSource != cluster.ImageSourceLocal {
+		t.Fatalf("image source = %q, want %q", options.imageSource, cluster.ImageSourceLocal)
+	}
+
+	options, err = parseCreateArgs([]string{"--registry", "--image", "ghcr.io/example/gpu-lab-runtime:1.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.imageSource != cluster.ImageSourceRegistry {
+		t.Fatalf("image source = %q, want %q", options.imageSource, cluster.ImageSourceRegistry)
+	}
+	if options.image != "ghcr.io/example/gpu-lab-runtime:1.0.0" {
+		t.Fatalf("image = %q, want explicit image", options.image)
+	}
+}
+
+func TestParseCreateArgsRejectsConflictingSources(t *testing.T) {
+	if _, err := parseCreateArgs([]string{"--local", "--registry"}); err == nil {
+		t.Fatal("parseCreateArgs() succeeded for conflicting sources")
 	}
 }

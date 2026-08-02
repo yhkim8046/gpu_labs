@@ -46,13 +46,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		}
 		return m.Helm(ctx, args[1:]...)
 	case "create":
-		createCtx, cancel := context.WithTimeout(ctx, cluster.DefaultTimeout())
-		defer cancel()
-		if err := m.Create(createCtx); err != nil {
-			return err
-		}
-		fmt.Fprintln(stdout, "gpu-lab cluster is ready")
-		return nil
+		return createCommand(ctx, m, args[1:], stdout)
 	case "destroy":
 		return m.Destroy(ctx)
 	case "doctor":
@@ -70,6 +64,85 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	default:
 		return fmt.Errorf("unknown command %q; run gpu-lab help", args[0])
 	}
+}
+
+type createOptions struct {
+	image       string
+	imageSource string
+}
+
+func createCommand(ctx context.Context, m cluster.Manager, args []string, stdout io.Writer) error {
+	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
+		printCreateHelp(stdout)
+		return nil
+	}
+	options, err := parseCreateArgs(args)
+	if err != nil {
+		return err
+	}
+	if options.imageSource != "" {
+		m.ImageSource = options.imageSource
+		switch options.imageSource {
+		case cluster.ImageSourceLocal:
+			if options.image == "" {
+				m.Image = cluster.LocalImageName
+			}
+		case cluster.ImageSourceRegistry:
+			if options.image == "" && m.Image == cluster.LocalImageName {
+				m.Image = cluster.RuntimeImageForVersion()
+			}
+		}
+	}
+	if options.image != "" {
+		m.Image = options.image
+	}
+	createCtx, cancel := context.WithTimeout(ctx, cluster.DefaultTimeout())
+	defer cancel()
+	if err := m.Create(createCtx); err != nil {
+		return err
+	}
+	fmt.Fprintln(stdout, "gpu-lab cluster is ready")
+	return nil
+}
+
+func parseCreateArgs(args []string) (createOptions, error) {
+	options := createOptions{}
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--local":
+			if options.imageSource != "" && options.imageSource != cluster.ImageSourceLocal {
+				return createOptions{}, errors.New("cannot combine --local with another image source")
+			}
+			options.imageSource = cluster.ImageSourceLocal
+		case "--registry":
+			if options.imageSource != "" && options.imageSource != cluster.ImageSourceRegistry {
+				return createOptions{}, errors.New("cannot combine --registry with another image source")
+			}
+			options.imageSource = cluster.ImageSourceRegistry
+		case "--image-source":
+			if i+1 >= len(args) {
+				return createOptions{}, errors.New("usage: gpu-lab create [--local|--registry] [--image <image>]")
+			}
+			i++
+			source := args[i]
+			if source != cluster.ImageSourceAuto && source != cluster.ImageSourceLocal && source != cluster.ImageSourceRegistry {
+				return createOptions{}, fmt.Errorf("invalid image source %q; expected auto, local, or registry", source)
+			}
+			if options.imageSource != "" && options.imageSource != source {
+				return createOptions{}, errors.New("cannot combine multiple image sources")
+			}
+			options.imageSource = source
+		case "--image":
+			if i+1 >= len(args) || args[i+1] == "" {
+				return createOptions{}, errors.New("usage: gpu-lab create [--local|--registry] [--image <image>]")
+			}
+			i++
+			options.image = args[i]
+		default:
+			return createOptions{}, fmt.Errorf("unknown create option %q; run gpu-lab create --help", args[i])
+		}
+	}
+	return options, nil
 }
 
 func verifyScenario(ctx context.Context, r runner.Runner, args []string, stdout io.Writer) error {
@@ -272,7 +345,7 @@ func printHelp(w io.Writer) {
 
 Usage:
   gpu-lab version
-  gpu-lab create
+  gpu-lab create [--local|--registry] [--image <image>]
   gpu-lab destroy
   gpu-lab reset
   gpu-lab doctor
@@ -295,6 +368,23 @@ Image environment:
   GPU_LAB_IMAGE=<image>                         override runtime image
   GPU_LAB_IMAGE_SOURCE=auto|local|registry      choose build or pull mode
   GPU_LAB_RUNTIME_IMAGE_REPOSITORY=<repository> release image repository
+`)
+}
+
+func printCreateHelp(w io.Writer) {
+	_, _ = io.WriteString(w, `gpu-lab create — create or reuse the GPU lab cluster
+
+Usage:
+  gpu-lab create
+  gpu-lab create --local
+  gpu-lab create --registry
+  gpu-lab create --image ghcr.io/<owner>/gpu-lab-runtime:1.0.0
+
+Options:
+  --local                  build and load the local gpu-lab:dev image
+  --registry               pull and load the versioned runtime image
+  --image <image>          override the runtime image reference
+  --image-source <source> choose auto, local, or registry
 `)
 }
 
