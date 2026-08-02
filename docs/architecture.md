@@ -266,6 +266,11 @@ MVP scenario 파일은 `scenarios/`에 두고, `metadata.name`과 filename을 �
 | `xid-79` | GPU fallen off bus에 해당하는 XID 신호 | XID 79, health 0 override |
 | `exporter-down` | Prometheus target down | 대상 exporter HTTP fault |
 | `scheduling-failure` | GPU Pod Pending | 9 GPU 요청 workload 생성 |
+| `thermal-throttling` | 고온과 처리량 저하 | 온도·전력·사용률 조합 override |
+| `xid-48` | double-bit ECC 장애 신호 | XID 48, health 0 override |
+| `gpu-idle` | GPU를 예약했지만 사용률이 거의 없음 | 1 GPU workload와 저사용률 metric |
+| `node-selector-mismatch` | 존재하지 않는 GPU profile을 요구해 Pending | nodeSelector 불일치 workload |
+| `gpu-fragmentation` | 전체 여유 GPU는 있지만 2 GPU Pod가 Pending | node별 7 GPU 선점 후 2 GPU 요청 |
 
 `xid-79`는 실제 driver 장애를 발생시키지 않습니다. XID code와 health metric만 바꾸며, 이 차이를 troubleshooting 문서에서 명시합니다.
 
@@ -287,7 +292,7 @@ Prometheus scrapes changed metrics
 student investigates Grafana → Prometheus → exporter state
 ```
 
-Scenario command는 적용 후 즉시 종료하지 않고, 최소한 ConfigMap generation과 대상 workload/exporter 상태를 확인한 뒤 결과를 출력합니다.
+Scenario command는 ConfigMap generation과 필요한 workload를 적용한 뒤 결과를 출력합니다. `wait_for_ready: true`인 workload는 Ready까지 기다리며, metric 반영과 Pending 원인은 runbook의 Prometheus 및 `kubectl describe` 명령으로 확인합니다.
 
 ### 6.4 Reset semantics
 
@@ -296,7 +301,7 @@ Scenario command는 적용 후 즉시 종료하지 않고, 최소한 ConfigMap g
 1. Scenario ConfigMap을 `normal`로 설정한다.
 2. `gpu-lab/scenario` label이 있는 workload와 auxiliary resource를 제거한다.
 3. exporter fault를 해제한다.
-4. Prometheus target과 metric baseline을 확인한다.
+4. Prometheus target과 metric baseline 확인은 runbook의 검증 명령으로 수행한다.
 
 `reset`은 사용자가 만든 namespace나 workload를 삭제하지 않습니다. `destroy`만 gpu-lab kind cluster 전체를 삭제합니다.
 

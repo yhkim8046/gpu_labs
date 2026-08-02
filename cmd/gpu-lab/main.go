@@ -153,13 +153,26 @@ func applyScenario(ctx context.Context, m cluster.Manager, selected scenario.Sce
 	if err := m.ApplyJSON(ctx, data); err != nil {
 		return err
 	}
-	if action, ok := scenario.HasAction(selected, "create_pending_workload"); ok {
-		workload, err := scenario.PendingWorkloadJSON(selected, action.GPUCount)
+	for _, action := range selected.Spec.Actions {
+		var workload []byte
+		switch action.Type {
+		case "create_pending_workload":
+			workload, err = scenario.PendingWorkloadJSON(selected, action.GPUCount)
+		case "create_gpu_workload":
+			workload, err = scenario.GPUWorkloadJSON(selected, action)
+		default:
+			continue
+		}
 		if err != nil {
 			return err
 		}
 		if err := m.ApplyJSON(ctx, workload); err != nil {
 			return err
+		}
+		if action.WaitForReady {
+			if err := m.WaitForScenarioPod(ctx, action.Name); err != nil {
+				return err
+			}
 		}
 	}
 	fmt.Fprintf(stdout, "scenario %s applied (generation %s)\n", selected.Name(), generation)

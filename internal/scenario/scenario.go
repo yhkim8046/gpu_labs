@@ -60,9 +60,12 @@ type MetricOverrides struct {
 }
 
 type ScenarioAction struct {
-	Type     string `yaml:"type" json:"type"`
-	Mode     string `yaml:"mode,omitempty" json:"mode,omitempty"`
-	GPUCount int    `yaml:"gpu_count,omitempty" json:"gpu_count,omitempty"`
+	Type         string            `yaml:"type" json:"type"`
+	Name         string            `yaml:"name,omitempty" json:"name,omitempty"`
+	Mode         string            `yaml:"mode,omitempty" json:"mode,omitempty"`
+	GPUCount     int               `yaml:"gpu_count,omitempty" json:"gpu_count,omitempty"`
+	NodeSelector map[string]string `yaml:"node_selector,omitempty" json:"node_selector,omitempty"`
+	WaitForReady bool              `yaml:"wait_for_ready,omitempty" json:"wait_for_ready,omitempty"`
 }
 
 func (s Scenario) Name() string {
@@ -115,6 +118,18 @@ func (s Scenario) Validate() error {
 		case "create_pending_workload":
 			if action.GPUCount <= 0 {
 				return fmt.Errorf("spec.actions[%d].gpu_count must be positive", i)
+			}
+		case "create_gpu_workload":
+			if !namePattern.MatchString(action.Name) {
+				return fmt.Errorf("spec.actions[%d].name %q is not a DNS-compatible lowercase name", i, action.Name)
+			}
+			if action.GPUCount <= 0 {
+				return fmt.Errorf("spec.actions[%d].gpu_count must be positive", i)
+			}
+			for key, value := range action.NodeSelector {
+				if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
+					return fmt.Errorf("spec.actions[%d].node_selector keys and values cannot be empty", i)
+				}
 			}
 		default:
 			return fmt.Errorf("spec.actions[%d].type %q is unsupported", i, action.Type)
@@ -214,11 +229,29 @@ func PendingWorkloadJSON(s Scenario, gpuCount int) ([]byte, error) {
 	if gpuCount <= 0 {
 		return nil, errors.New("gpuCount must be positive")
 	}
+	return GPUWorkloadJSON(s, ScenarioAction{
+		Type:     "create_gpu_workload",
+		Name:     "gpu-lab-scheduling-failure",
+		GPUCount: gpuCount,
+	})
+}
+
+func GPUWorkloadJSON(s Scenario, action ScenarioAction) ([]byte, error) {
+	if action.Type != "create_gpu_workload" {
+		return nil, fmt.Errorf("action type must be create_gpu_workload, got %q", action.Type)
+	}
+	if !namePattern.MatchString(action.Name) {
+		return nil, fmt.Errorf("workload name %q is not a DNS-compatible lowercase name", action.Name)
+	}
+	if action.GPUCount <= 0 {
+		return nil, errors.New("gpu_count must be positive")
+	}
+	resourceCount := fmt.Sprint(action.GPUCount)
 	manifest := map[string]any{
 		"apiVersion": "v1",
 		"kind":       "Pod",
 		"metadata": map[string]any{
-			"name":      "gpu-lab-scheduling-failure",
+			"name":      action.Name,
 			"namespace": "gpu-lab-demo",
 			"labels": map[string]string{
 				"app.kubernetes.io/part-of":    "gpu-lab",
@@ -232,10 +265,14 @@ func PendingWorkloadJSON(s Scenario, gpuCount int) ([]byte, error) {
 				"name":  "pause",
 				"image": "registry.k8s.io/pause:3.9",
 				"resources": map[string]any{
-					"limits": map[string]string{"nvidia.com/gpu": fmt.Sprint(gpuCount)},
+					"requests": map[string]string{"nvidia.com/gpu": resourceCount},
+					"limits":   map[string]string{"nvidia.com/gpu": resourceCount},
 				},
 			}},
 		},
+	}
+	if len(action.NodeSelector) > 0 {
+		manifest["spec"].(map[string]any)["nodeSelector"] = action.NodeSelector
 	}
 	return json.MarshalIndent(manifest, "", "  ")
 }

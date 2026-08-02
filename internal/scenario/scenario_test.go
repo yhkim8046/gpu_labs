@@ -10,7 +10,7 @@ func TestBuiltinScenarios(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"exporter-down", "gpu-util-high", "normal", "scheduling-failure", "vram-pressure", "xid-79"}
+	want := []string{"exporter-down", "gpu-fragmentation", "gpu-idle", "gpu-util-high", "node-selector-mismatch", "normal", "scheduling-failure", "thermal-throttling", "vram-pressure", "xid-48", "xid-79"}
 	if len(names) != len(want) {
 		t.Fatalf("got %v, want %v", names, want)
 	}
@@ -69,5 +69,37 @@ func TestConfigMapAndPendingWorkloadJSON(t *testing.T) {
 	limits := container["resources"].(map[string]any)["limits"].(map[string]any)
 	if limits["nvidia.com/gpu"] != "9" {
 		t.Fatalf("GPU limit = %v", limits["nvidia.com/gpu"])
+	}
+	requests := container["resources"].(map[string]any)["requests"].(map[string]any)
+	if requests["nvidia.com/gpu"] != "9" {
+		t.Fatalf("GPU request = %v", requests["nvidia.com/gpu"])
+	}
+}
+
+func TestGPUWorkloadJSON(t *testing.T) {
+	s, err := LoadBuiltin("node-selector-mismatch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	action, ok := HasAction(s, "create_gpu_workload")
+	if !ok {
+		t.Fatal("create_gpu_workload action missing")
+	}
+	data, err := GPUWorkloadJSON(s, action)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pod map[string]any
+	if err := json.Unmarshal(data, &pod); err != nil {
+		t.Fatal(err)
+	}
+	metadata := pod["metadata"].(map[string]any)
+	if metadata["name"] != "gpu-lab-node-selector-mismatch" {
+		t.Fatalf("name = %v", metadata["name"])
+	}
+	spec := pod["spec"].(map[string]any)
+	selector := spec["nodeSelector"].(map[string]any)
+	if selector["gpu.lab/node-id"] != "gpu-node-99" {
+		t.Fatalf("node selector = %v", selector)
 	}
 }

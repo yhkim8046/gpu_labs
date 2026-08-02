@@ -74,6 +74,11 @@ gpu-lab scenario run vram-pressure
 gpu-lab scenario run xid-79
 gpu-lab scenario run exporter-down
 gpu-lab scenario run scheduling-failure
+gpu-lab scenario run thermal-throttling
+gpu-lab scenario run xid-48
+gpu-lab scenario run gpu-idle
+gpu-lab scenario run node-selector-mismatch
+gpu-lab scenario run gpu-fragmentation
 gpu-lab scenario reset
 ```
 
@@ -87,19 +92,21 @@ gpu-lab scenario run my-scenario --file ./my-scenario.yaml
 
 ```bash
 gpu-lab status
-kubectl --context kind-gpu-lab get nodes
-kubectl --context kind-gpu-lab get pods -A
-kubectl --context kind-gpu-lab describe pod -n gpu-lab-demo gpu-lab-scheduling-failure
+kubectl --context gpu-lab get nodes
+kubectl --context gpu-lab get pods -A
+kubectl --context gpu-lab describe pod -n gpu-lab-demo gpu-lab-scheduling-failure
 ```
 
 Grafana 접근 방식은 설치된 Helm chart의 Service를 확인합니다.
 
 ```bash
-kubectl --context kind-gpu-lab -n gpu-lab-monitoring get svc
-kubectl --context kind-gpu-lab -n gpu-lab-monitoring port-forward svc/gpu-lab-monitoring-grafana 3000:80
+kubectl --context gpu-lab -n gpu-lab-monitoring get svc
+kubectl --context gpu-lab -n gpu-lab-monitoring port-forward svc/gpu-lab-monitoring-grafana 3000:80
 ```
 
 Dashboard의 모든 metric은 `gpu_lab_` prefix를 사용하며, 실제 NVIDIA DCGM metric이 아니라 합성된 교육용 값입니다.
+
+각 장애의 관찰 명령, 원인 가설, 복구 절차는 [Scenario Runbook](scenarios.md)을 참고합니다.
 
 ## 정리
 

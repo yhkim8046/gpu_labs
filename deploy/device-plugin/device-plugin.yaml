@@ -11,6 +11,8 @@ kind: DaemonSet
 metadata:
   name: nvidia-device-plugin
   namespace: gpu-lab-system
+  annotations:
+    gpu-lab.io/implementation: synthetic
   labels:
     app.kubernetes.io/name: nvidia-device-plugin
     app.kubernetes.io/part-of: gpu-lab
@@ -21,6 +23,8 @@ spec:
       app.kubernetes.io/name: nvidia-device-plugin
   template:
     metadata:
+      annotations:
+        gpu-lab.io/implementation: synthetic
       labels:
         app.kubernetes.io/name: nvidia-device-plugin
         app.kubernetes.io/part-of: gpu-lab

@@ -1,0 +1,12 @@
+apiVersion: gpu-lab.io/v1alpha1
+kind: Scenario
+metadata:
+  name: node-selector-mismatch
+spec:
+  description: A GPU workload targets a GPU node profile that does not exist
+  actions:
+    - type: create_gpu_workload
+      name: gpu-lab-node-selector-mismatch
+      gpu_count: 1
+      node_selector:
+        gpu.lab/node-id: gpu-node-99

@@ -2,7 +2,7 @@
 
 GPU가 없는 노트북에서 Kubernetes GPU Infrastructure를 실습하기 위한 교육용 오픈소스 프로젝트입니다.
 
-> 현재 상태: **MVP implementation — local tests passing; kind/Helm e2e pending**
+> 현재 상태: **MVP implementation — local tests와 macOS kind/Helm e2e 통과**
 
 gpu-lab은 GPU나 CUDA를 흉내 내는 프로젝트가 아닙니다. Kubernetes에서 GPU 리소스가 스케줄링되고, 모니터링되며, 장애 상황에서 어떤 신호를 확인하고 복구하는지를 학습하기 위한 로컬 실습 환경입니다.
 
@@ -40,6 +40,8 @@ gpu-lab helm install gpu-lab-monitoring prometheus-community/kube-prometheus-sta
 
 - [Architecture Proposal](docs/architecture.md)
 - [Getting Started](docs/getting-started.md)
+- [Scenario Runbook](docs/scenarios.md)
+- [Course Readiness & Roadmap](docs/course-readiness.md)
 
 문서에는 다음 내용이 포함되어 있습니다.
 

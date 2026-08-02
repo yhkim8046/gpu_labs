@@ -1,0 +1,12 @@
+apiVersion: gpu-lab.io/v1alpha1
+kind: Scenario
+metadata:
+  name: xid-48
+spec:
+  description: Double-bit ECC error signal that requires workload drain and GPU recovery
+  metrics:
+    gpu_memory_used_percent: 88
+    temperature_celsius: 76
+    xid_code: 48
+    health: 0
+  actions: []

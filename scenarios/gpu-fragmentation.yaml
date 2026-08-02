@@ -1,0 +1,33 @@
+apiVersion: gpu-lab.io/v1alpha1
+kind: Scenario
+metadata:
+  name: gpu-fragmentation
+spec:
+  description: Free GPUs exist cluster-wide but no single node has two allocatable GPUs
+  metrics:
+    gpu_utilization_percent: 68
+    gpu_memory_used_percent: 64
+    temperature_celsius: 69
+    power_watts: 185
+  actions:
+    - type: create_gpu_workload
+      name: gpu-lab-fragmentation-worker-01
+      gpu_count: 7
+      node_selector:
+        gpu.lab/node-id: gpu-node-01
+      wait_for_ready: true
+    - type: create_gpu_workload
+      name: gpu-lab-fragmentation-worker-02
+      gpu_count: 7
+      node_selector:
+        gpu.lab/node-id: gpu-node-02
+      wait_for_ready: true
+    - type: create_gpu_workload
+      name: gpu-lab-fragmentation-worker-03
+      gpu_count: 7
+      node_selector:
+        gpu.lab/node-id: gpu-node-03
+      wait_for_ready: true
+    - type: create_gpu_workload
+      name: gpu-lab-fragmentation-target
+      gpu_count: 2

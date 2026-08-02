@@ -96,6 +96,9 @@ func (m Manager) Create(ctx context.Context) error {
 	if err := m.Runner.Run(ctx, "kubectl", "--context", KubeContext, "wait", "--for=condition=Ready", "nodes", "--all", "--timeout=5m"); err != nil {
 		return err
 	}
+	if err := m.Runner.Run(ctx, "kubectl", "--context", KubeContext, "rollout", "restart", "daemonset/nvidia-device-plugin", "daemonset/dcgm-exporter", "-n", "gpu-lab-system"); err != nil {
+		return err
+	}
 	if err := m.Runner.Run(ctx, "kubectl", "--context", KubeContext, "rollout", "status", "daemonset/nvidia-device-plugin", "-n", "gpu-lab-system", "--timeout=5m"); err != nil {
 		return err
 	}
@@ -197,6 +200,10 @@ func (m Manager) ApplyJSON(ctx context.Context, data []byte) error {
 
 func (m Manager) DeleteScenarioPods(ctx context.Context) error {
 	return m.Runner.Run(ctx, "kubectl", "--context", KubeContext, "delete", "pod", "-n", "gpu-lab-demo", "-l", "app.kubernetes.io/managed-by=gpu-lab,gpu-lab/scenario", "--ignore-not-found=true")
+}
+
+func (m Manager) WaitForScenarioPod(ctx context.Context, name string) error {
+	return m.Runner.Run(ctx, "kubectl", "--context", KubeContext, "wait", "--for=condition=Ready", "pod/"+name, "-n", "gpu-lab-demo", "--timeout=2m")
 }
 
 func (m Manager) SetupContext(ctx context.Context) (string, error) {
