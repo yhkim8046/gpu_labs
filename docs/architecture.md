@@ -493,7 +493,7 @@ create
   → destroy
 ```
 
-CI는 Linux Docker runner에서 full e2e를 수행하고, macOS와 WSL2는 release smoke test matrix로 검증합니다. kind와 chart/image version 변경은 별도 dependency update PR로 다룹니다.
+CI는 Linux Docker runner에서 `create → 모든 기본 scenario → verify → reset → destroy` full e2e를 수행합니다. 로컬 macOS/WSL2에서는 `E2E_KEEP_CLUSTER=1 make e2e`로 cluster를 보존하는 smoke test를 실행할 수 있습니다. kind, kubectl, Helm과 chart version은 CI workflow에서 고정하고, 버전 변경은 별도 dependency update PR로 다룹니다.
 
 ## 11. 기술적 리스크
 

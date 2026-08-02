@@ -122,3 +122,21 @@ gpu-lab verify xid-48
 gpu-lab scenario reset
 gpu-lab destroy
 ```
+
+저장소 개발자는 kind/Helm 통합 테스트를 실행할 수 있습니다. 이 명령은 마지막에 `gpu-lab` kind cluster를 삭제합니다.
+
+```bash
+make e2e
+```
+
+현재 클러스터를 보존하며 로컬 smoke만 실행하려면 다음과 같이 지정합니다.
+
+```bash
+E2E_KEEP_CLUSTER=1 make e2e
+```
+
+현재 클러스터를 보존하며 로컬 smoke만 실행하려면 다음과 같이 지정합니다.
+
+```bash
+E2E_KEEP_CLUSTER=1 make e2e
+```

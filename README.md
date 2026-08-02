@@ -86,6 +86,13 @@ go run ./cmd/gpu-lab verify normal
 go run ./cmd/gpu-lab destroy
 ```
 
+개발 검증은 다음 명령으로 실행합니다. `make e2e`는 마지막에 `gpu-lab` kind cluster를 삭제합니다.
+
+```bash
+make test
+make e2e
+```
+
 ## OSS 운영 원칙
 
 - 기본 브랜치는 항상 재현 가능한 상태를 유지합니다.

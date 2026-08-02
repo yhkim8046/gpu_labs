@@ -9,7 +9,7 @@ gpu-lab의 주제는 강의 상품으로 차별화할 수 있습니다. 일반 K
 ## 촬영 전 P0
 
 1. **배포 가능한 CLI**: `go run` 대신 macOS/Linux/Windows용 release binary, checksum, 설치·업그레이드·제거 문서가 필요합니다.
-2. **재현성 있는 E2E**: CI에서 create → scenario → reset → destroy를 검증하고 macOS/WSL2 smoke 결과를 버전별로 기록해야 합니다.
+2. **재현성 있는 E2E**: CI에서 create → 모든 기본 scenario → verify → reset → destroy를 검증하고 macOS/WSL2 smoke 결과를 버전별로 기록해야 합니다. Ubuntu GitHub Actions workflow와 로컬 `make e2e` runner가 추가됐습니다.
 3. **Scenario 성공 조건**: `gpu-lab verify <scenario>`로 각 scenario의 metric, Pod phase, scheduler event를 자동 검증해야 합니다. 기본 verifier는 구현됐고, CI acceptance flow에 연결해야 합니다.
 4. **실제 DCGM 대응표**: `gpu_lab_*` metric과 실제 `DCGM_FI_*`/`DCGM_EXP_*` metric, label, 단위의 대응을 문서화해야 합니다.
 5. **강의용 접근 UX**: `gpu-lab dashboard`, `gpu-lab metrics`, `gpu-lab scenario inspect`처럼 긴 port-forward와 PromQL을 줄이는 명령이 필요합니다.

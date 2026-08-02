@@ -31,3 +31,49 @@ jobs:
           context: .
           push: false
           tags: gpu-lab:ci
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      KIND_EXPERIMENTAL_PROVIDER: docker
+      GPU_LAB_HELM_CHART_VERSION: '87.21.0'
+      HELM_VERSION: 'v4.2.3'
+      KUBECTL_VERSION: 'v1.36.1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: true
+      - name: Install pinned kind
+        env:
+          KIND_VERSION: 'v0.32.0'
+        run: |
+          go install sigs.k8s.io/kind@"${KIND_VERSION}"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Install pinned Helm
+        run: |
+          curl --fail --silent --show-error --location --retry 3 \
+            --output "helm-${HELM_VERSION}-linux-amd64.tar.gz" \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            --output "helm-${HELM_VERSION}-linux-amd64.tar.gz.sha256sum" \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz.sha256sum"
+          sha256sum -c "helm-${HELM_VERSION}-linux-amd64.tar.gz.sha256sum"
+          tar -xzf "helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          sudo install linux-amd64/helm /usr/local/bin/helm
+          helm version --short
+      - name: Install pinned kubectl
+        run: |
+          curl --fail --silent --show-error --location --retry 3 \
+            --output kubectl \
+            "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          curl --fail --silent --show-error --location --retry 3 \
+            --output kubectl.sha256 \
+            "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256"
+          echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
+          sudo install -m 0755 kubectl /usr/local/bin/kubectl
+          kubectl version --client=true --output=yaml
+      - name: Run kind and Helm integration tests
+        run: ./test/e2e/run.sh
