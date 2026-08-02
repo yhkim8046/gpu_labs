@@ -17,7 +17,7 @@ func main() {
 	gpuCount := envInt("GPU_COUNT", 8)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	log.Printf("fake-gpu-device-plugin node=%s resource=%s gpu_count=%d", nodeName, resourceName, gpuCount)
+	log.Printf("nvidia-device-plugin node=%s resource=%s gpu_count=%d", nodeName, resourceName, gpuCount)
 	if err := deviceplugin.New(resourceName, nodeName, gpuCount).Serve(ctx); err != nil {
 		log.Fatal(err)
 	}

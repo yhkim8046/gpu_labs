@@ -27,7 +27,7 @@
 
 worker Node의 `status.capacity`를 CLI가 직접 수정하는 방식은 kubelet의 실제 리소스 관리 흐름을 재현하지 못하고, 재시작·재조정 시 상태가 사라질 수 있습니다.
 
-MVP에서는 각 worker에 Fake Device Plugin DaemonSet을 실행합니다.
+MVP에서는 각 worker에 synthetic `nvidia-device-plugin` DaemonSet을 실행합니다.
 
 - 리소스 이름: `nvidia.com/gpu`
 - worker별 가상 GPU 수: 8
@@ -44,7 +44,7 @@ Device Plugin API와 kind container 내부의 kubelet socket 연결은 MVP의 �
 
 MVP에는 실제 GPU Operator controller나 CRD를 만들지 않습니다. 대신 `gpu-lab create`가 다음 구성요소를 선언된 순서로 설치합니다.
 
-1. Fake Device Plugin
+1. `nvidia-device-plugin`
 2. `dcgm-exporter` synthetic telemetry layer
 3. Prometheus
 4. Grafana와 dashboard provisioning
@@ -82,7 +82,7 @@ flowchart LR
     Kind[kind cluster]
     KubeAPI[Kubernetes API Server]
     Scheduler[Kubernetes Scheduler]
-    Plugin[Fake Device Plugin\nDaemonSet]
+    Plugin[nvidia-device-plugin\nDaemonSet]
     Exporter[dcgm-exporter\nsynthetic DaemonSet]
     Prom[Prometheus]
     Grafana[Grafana]
@@ -113,13 +113,13 @@ Docker
     │   ├── kube-apiserver
     │   └── kube-scheduler
     ├── gpu-node-01
-    │   ├── Fake Device Plugin
+    │   ├── nvidia-device-plugin
     │   └── dcgm-exporter
     ├── gpu-node-02
-    │   ├── Fake Device Plugin
+    │   ├── nvidia-device-plugin
     │   └── dcgm-exporter
     ├── gpu-node-03
-    │   ├── Fake Device Plugin
+    │   ├── nvidia-device-plugin
     │   └── dcgm-exporter
     └── monitoring namespace
         ├── Prometheus
@@ -158,7 +158,7 @@ gpu.lab/node-id=gpu-node-01
 ### 4.2 Resource lifecycle
 
 ```text
-Fake Device Plugin starts
+`nvidia-device-plugin` starts
     ↓
 register nvidia.com/gpu with kubelet
     ↓
@@ -185,7 +185,7 @@ resources:
 
 ### 4.3 안전 경계
 
-Fake Device Plugin은 host의 `/dev`, GPU driver, Docker socket을 필요로 하지 않습니다. 필요한 hostPath는 kubelet device-plugin socket 디렉터리로 제한합니다. 이 경계를 깨는 privileged mount는 MVP에서 허용하지 않습니다.
+이 synthetic `nvidia-device-plugin`은 host의 `/dev`, GPU driver, Docker socket을 필요로 하지 않습니다. 필요한 hostPath는 kubelet device-plugin socket 디렉터리로 제한합니다. 이 경계를 깨는 privileged mount는 MVP에서 허용하지 않습니다.
 
 ## 5. `dcgm-exporter` 설계
 
@@ -394,7 +394,7 @@ gpu-lab/
 ├── Makefile
 ├── cmd/
 │   ├── gpu-lab/                    # user-facing CLI
-│   ├── fake-gpu-device-plugin/     # kubelet device plugin
+│   ├── nvidia-device-plugin/     # kubelet device plugin
 │   └── dcgm-exporter/          # Prometheus exporter
 ├── internal/
 │   ├── cli/

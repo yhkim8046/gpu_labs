@@ -10,7 +10,7 @@ gpu-lab은 GPU나 CUDA를 흉내 내는 프로젝트가 아닙니다. Kubernetes
 
 - kind 기반 multi-node Kubernetes cluster
 - `nvidia.com/gpu` Extended Resource와 GPU scheduling
-- NVIDIA Device Plugin의 등록·할당 모델을 본뜬 Fake Device Plugin
+- NVIDIA Device Plugin의 등록·할당 모델을 따르는 synthetic `nvidia-device-plugin`
 - DCGM Exporter의 관측 모델을 따르는 synthetic `dcgm-exporter`
 - Prometheus와 Grafana 기반 GPU monitoring
 - YAML 기반 GPU incident scenario

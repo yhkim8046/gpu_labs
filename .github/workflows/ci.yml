@@ -19,7 +19,7 @@ jobs:
           cache: true
       - run: go test ./...
       - run: go vet ./...
-      - run: go build ./cmd/gpu-lab ./cmd/fake-gpu-device-plugin ./cmd/dcgm-exporter
+      - run: go build ./cmd/gpu-lab ./cmd/nvidia-device-plugin ./cmd/dcgm-exporter
 
   container:
     runs-on: ubuntu-latest
