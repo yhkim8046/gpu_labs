@@ -21,7 +21,7 @@ const (
 	KubeContext         = kubeconfig.LabContext
 	LocalImageName      = "gpu-lab:dev"
 	ImageName           = LocalImageName
-	DefaultImageRepo    = "ghcr.io/gpu-lab/gpu-lab-runtime"
+	DefaultImageRepo    = "ghcr.io/yhkim8046/gpu-lab-runtime"
 	ImageSourceAuto     = "auto"
 	ImageSourceLocal    = "local"
 	ImageSourceRegistry = "registry"

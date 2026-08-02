@@ -22,7 +22,7 @@ VERSION=0.1.0
 OS=darwin
 ARCH=arm64
 ASSET="gpu-lab_${VERSION}_${OS}_${ARCH}.tar.gz"
-BASE_URL="https://github.com/gpu-lab/gpu-lab/releases/download/v${VERSION}"
+BASE_URL="https://github.com/yhkim8046/gpu_labs/releases/download/v${VERSION}"
 
 curl -fL -o "$ASSET" "${BASE_URL}/${ASSET}"
 curl -fL -o checksums.txt "${BASE_URL}/checksums.txt"
@@ -50,7 +50,7 @@ Windows native 환경에서는 `.zip` asset을 사용합니다. WSL2 안에서 �
 $Version = "0.1.0"
 $Arch = "amd64"
 $Asset = "gpu-lab_${Version}_windows_${Arch}.zip"
-$BaseUrl = "https://github.com/gpu-lab/gpu-lab/releases/download/v$Version"
+$BaseUrl = "https://github.com/yhkim8046/gpu_labs/releases/download/v$Version"
 
 Invoke-WebRequest "$BaseUrl/$Asset" -OutFile $Asset
 Invoke-WebRequest "$BaseUrl/checksums.txt" -OutFile checksums.txt
@@ -118,19 +118,19 @@ make release-snapshot
 `v1.0.0` tag를 push하면 `.github/workflows/publish-image.yml`이 GHCR에 다음 이미지를 생성합니다.
 
 ```text
-ghcr.io/<github-owner>/gpu-lab-runtime:1.0.0
+ghcr.io/yhkim8046/gpu-lab-runtime:1.0.0
 ```
 
 이미지는 `linux/amd64`와 `linux/arm64` manifest를 함께 제공하며, tag에는 `latest`를 사용하지 않습니다. 강의에서는 CLI release version과 같은 image tag를 고정해야 합니다.
 
 ```bash
-docker pull ghcr.io/<github-owner>/gpu-lab-runtime:1.0.0
-docker buildx imagetools inspect ghcr.io/<github-owner>/gpu-lab-runtime:1.0.0
+docker pull ghcr.io/yhkim8046/gpu-lab-runtime:1.0.0
+docker buildx imagetools inspect ghcr.io/yhkim8046/gpu-lab-runtime:1.0.0
 ```
 
 Release binary로 `gpu-lab create`를 실행하면 CLI version과 같은 tag의 runtime image를 자동으로 pull한 뒤 kind node에 load합니다. `go run` 개발 모드는 기존처럼 local `gpu-lab:dev` image를 build합니다.
 
-기본 runtime repository는 `ghcr.io/gpu-lab/gpu-lab-runtime`입니다. 프로젝트를 다른 GitHub owner로 fork했다면 다음 환경 변수를 자신의 GHCR 경로로 바꿉니다.
+기본 runtime repository는 `ghcr.io/yhkim8046/gpu-lab-runtime`입니다. 프로젝트를 다른 GitHub owner로 fork했다면 다음 환경 변수를 자신의 GHCR 경로로 바꿉니다.
 
 ```bash
 GPU_LAB_RUNTIME_IMAGE_REPOSITORY=ghcr.io/<github-owner>/gpu-lab-runtime gpu-lab create
