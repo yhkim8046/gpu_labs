@@ -9,13 +9,14 @@ import (
 	"time"
 
 	deployassets "github.com/gpu-lab/gpu-lab/deploy"
+	"github.com/gpu-lab/gpu-lab/internal/kubeconfig"
 	"github.com/gpu-lab/gpu-lab/internal/runner"
 	"github.com/gpu-lab/gpu-lab/internal/scenario"
 )
 
 const (
 	ClusterName         = "gpu-lab"
-	KubeContext         = "kind-gpu-lab"
+	KubeContext         = kubeconfig.LabContext
 	ImageName           = "gpu-lab:dev"
 	MonitoringRelease   = "gpu-lab-monitoring"
 	MonitoringNS        = "gpu-lab-monitoring"
@@ -28,6 +29,7 @@ type Manager struct {
 	Chart        string
 	ChartVersion string
 	Workdir      string
+	Kubeconfig   kubeconfig.Manager
 }
 
 func NewManager(r runner.Runner) Manager {
@@ -41,6 +43,7 @@ func NewManager(r runner.Runner) Manager {
 		Chart:        chart,
 		ChartVersion: envOr("GPU_LAB_HELM_CHART_VERSION", DefaultChartVersion),
 		Workdir:      ".",
+		Kubeconfig:   kubeconfig.New(r),
 	}
 }
 
@@ -67,6 +70,9 @@ func (m Manager) Create(ctx context.Context) error {
 	}
 	if err := m.Runner.Run(ctx, "kind", "load", "docker-image", m.Image, "--name", ClusterName); err != nil {
 		return err
+	}
+	if _, err := m.Kubeconfig.Setup(ctx, ClusterName); err != nil {
+		return fmt.Errorf("setup gpu-lab kubeconfig: %w", err)
 	}
 	for _, asset := range []string{"device-plugin/device-plugin.yaml", "exporter/exporter.yaml", "demo/namespace.yaml"} {
 		if err := m.ApplyAsset(ctx, asset); err != nil {
@@ -98,7 +104,7 @@ func (m Manager) Create(ctx context.Context) error {
 		return err
 	}
 	defer cleanup()
-	helmArgs := []string{"upgrade", "--install", MonitoringRelease, m.Chart, "--namespace", MonitoringNS, "--create-namespace", "--values", valuesPath, "--wait", "--timeout", "10m"}
+	helmArgs := []string{"--kube-context", KubeContext, "upgrade", "--install", MonitoringRelease, m.Chart, "--namespace", MonitoringNS, "--create-namespace", "--values", valuesPath, "--wait", "--timeout", "10m"}
 	if m.ChartVersion != "" {
 		helmArgs = append(helmArgs, "--version", m.ChartVersion)
 	}
@@ -137,6 +143,9 @@ func (m Manager) Exists(ctx context.Context) (bool, error) {
 }
 
 func (m Manager) Status(ctx context.Context) error {
+	if _, err := m.Kubeconfig.Setup(ctx, ClusterName); err != nil {
+		return fmt.Errorf("setup gpu-lab kubeconfig: %w", err)
+	}
 	commands := [][]string{
 		{"get", "nodes", "-o", "custom-columns=NAME:.metadata.name,GPU-CAPACITY:.status.capacity.nvidia\\.com/gpu,GPU-ALLOCATABLE:.status.allocatable.nvidia\\.com/gpu,STATUS:.status.conditions[-1].type"},
 		{"get", "pods", "-A", "-o", "wide"},
@@ -165,6 +174,26 @@ func (m Manager) ApplyJSON(ctx context.Context, data []byte) error {
 
 func (m Manager) DeleteScenarioPods(ctx context.Context) error {
 	return m.Runner.Run(ctx, "kubectl", "--context", KubeContext, "delete", "pod", "-n", "gpu-lab-demo", "-l", "app.kubernetes.io/managed-by=gpu-lab,gpu-lab/scenario", "--ignore-not-found=true")
+}
+
+func (m Manager) SetupContext(ctx context.Context) (string, error) {
+	return m.Kubeconfig.Setup(ctx, ClusterName)
+}
+
+func (m Manager) UseContext(ctx context.Context, name string) error {
+	return m.Kubeconfig.Use(ctx, name)
+}
+
+func (m Manager) CurrentContext(ctx context.Context) (string, error) {
+	return m.Kubeconfig.Current(ctx)
+}
+
+func (m Manager) Contexts(ctx context.Context) ([]string, error) {
+	return m.Kubeconfig.List(ctx)
+}
+
+func (m Manager) DedicatedKubeconfigPath() (string, error) {
+	return m.Kubeconfig.DedicatedPath()
 }
 
 func (m Manager) Helm(ctx context.Context, args ...string) error {

@@ -35,6 +35,17 @@ go run ./cmd/gpu-lab create
 5. 공식 Helm CLI로 `kube-prometheus-stack`을 설치한다.
 6. ServiceMonitor, PrometheusRule, Grafana dashboard를 provision한다.
 
+또한 `~/.kube/gpu-lab.config`를 만들고 기본 kubeconfig에 `gpu-lab` alias context를 등록합니다. 기존 MLX context는 삭제하거나 덮어쓰지 않습니다.
+
+```bash
+gpu-lab context setup
+gpu-lab context list
+gpu-lab context use gpu-lab
+gpu-lab context use 7fa96a70-f1d6-11f0-b997-246e96591a38@mlx-kpb4r/p-example
+```
+
+`context use`는 기본 kubeconfig의 current-context를 영구 변경합니다. gpu-lab 내부의 cluster 작업은 current-context에 의존하지 않고 `gpu-lab` context를 명시해 실행합니다.
+
 기본 chart version은 `87.21.0`으로 고정되어 있습니다. 다른 공식 chart version을 검증할 때만 다음 환경 변수를 지정합니다.
 
 ```bash

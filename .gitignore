@@ -11,7 +11,10 @@ coverage.out
 # Local lab state
 .gpu-lab/
 .kind/
-kubeconfig*
+/.kube/
+*.kubeconfig
+!internal/kubeconfig/
+!internal/kubeconfig/**
 
 # Generated files
 deploy/generated/

@@ -332,6 +332,9 @@ CLI binary 이름은 `gpu-lab`이며 Go로 구현합니다. 외부 command 실�
 | `gpu-lab reset` | scenario reset과 lab-owned 상태 복구 |
 | `gpu-lab doctor` | Docker, kind, kubectl, helm, context, port, image pull 가능 여부 진단 |
 | `gpu-lab status` | node/resource/pod/monitoring/scenario 요약 |
+| `gpu-lab context list` | 현재 context와 사용 가능한 kubeconfig context 표시 |
+| `gpu-lab context setup` | dedicated kubeconfig와 `gpu-lab` alias context 생성 |
+| `gpu-lab context use <name>` | 기본 kubeconfig의 current-context 전환 |
 | `gpu-lab scenario list` | 내장 YAML scenario 목록 표시 |
 | `gpu-lab scenario run <name>` | scenario 검증·적용·상태 확인 |
 | `gpu-lab scenario reset` | `normal` 복구 |
@@ -360,9 +363,13 @@ gpu-lab helm install gpu-lab-monitoring prometheus-community/kube-prometheus-sta
 ### Idempotency
 
 - cluster name은 `gpu-lab`으로 고정한다.
+- kubectl context alias는 `gpu-lab`으로 고정하고, kind의 원래 `kind-gpu-lab` context는 보존한다.
+- dedicated kubeconfig는 `${HOME}/.kube/gpu-lab.config`에 저장한다.
 - create는 이미 존재하는 cluster를 재사용하고 누락된 구성만 reconcile한다.
 - destroy 대상은 kind cluster 이름을 명시적으로 확인한 뒤 삭제한다.
-- CLI는 현재 kube-context가 `kind-gpu-lab`인지 확인하며, 다른 context에 apply하지 않는다.
+- CLI는 `gpu-lab` context를 확인하며, 다른 context에 apply하지 않는다.
+
+현재 kubeconfig의 active context와 무관하게 모든 gpu-lab mutation에는 `--context gpu-lab` 또는 `--kube-context gpu-lab`을 명시한다.
 
 ### 사용자 경험
 

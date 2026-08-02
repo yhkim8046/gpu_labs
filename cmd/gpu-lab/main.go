@@ -50,6 +50,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return doctor(ctx, r, stdout)
 	case "status":
 		return m.Status(ctx)
+	case "context":
+		return contextCommand(ctx, m, args[1:], stdout)
 	case "reset":
 		return reset(ctx, m, stdout)
 	case "scenario":
@@ -93,6 +95,49 @@ func scenarioCommand(ctx context.Context, m cluster.Manager, args []string, stdo
 		return applyScenario(ctx, m, selected, stdout)
 	default:
 		return fmt.Errorf("unknown scenario command %q", args[0])
+	}
+}
+
+func contextCommand(ctx context.Context, m cluster.Manager, args []string, stdout io.Writer) error {
+	if len(args) == 0 || args[0] == "list" {
+		current, err := m.CurrentContext(ctx)
+		if err != nil {
+			return err
+		}
+		contexts, err := m.Contexts(ctx)
+		if err != nil {
+			return err
+		}
+		path, err := m.DedicatedKubeconfigPath()
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "current: %s\n", current)
+		fmt.Fprintf(stdout, "dedicated kubeconfig: %s\n", path)
+		for _, name := range contexts {
+			fmt.Fprintln(stdout, name)
+		}
+		return nil
+	}
+	switch args[0] {
+	case "setup":
+		path, err := m.SetupContext(ctx)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "gpu-lab context configured\ndedicated kubeconfig: %s\n", path)
+		return nil
+	case "use":
+		if len(args) != 2 {
+			return errors.New("usage: gpu-lab context use <context-name>")
+		}
+		if err := m.UseContext(ctx, args[1]); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "switched kubectl context to %s\n", args[1])
+		return nil
+	default:
+		return fmt.Errorf("unknown context command %q; use list, setup, or use", args[0])
 	}
 }
 
@@ -179,6 +224,9 @@ Usage:
   gpu-lab reset
   gpu-lab doctor
   gpu-lab status
+  gpu-lab context list
+  gpu-lab context setup
+  gpu-lab context use <context-name>
   gpu-lab scenario list
   gpu-lab scenario run <name>
   gpu-lab scenario reset

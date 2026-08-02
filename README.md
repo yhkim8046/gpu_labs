@@ -70,6 +70,8 @@ go run ./cmd/gpu-lab scenario list
 go run ./cmd/gpu-lab scenario run xid-79
 go run ./cmd/gpu-lab scenario reset
 go run ./cmd/gpu-lab helm repo list
+go run ./cmd/gpu-lab context list
+go run ./cmd/gpu-lab context use gpu-lab
 ```
 
 실제 cluster lifecycle을 실행하려면 Docker, kind, kubectl, Helm을 설치한 뒤 저장소 루트에서 다음을 실행합니다.
