@@ -1,0 +1,9 @@
+image: gpu-lab:dev
+imagePullPolicy: IfNotPresent
+gpuCount: 8
+
+nodeSelector:
+  gpu.lab/type: fake
+
+service:
+  port: 9400

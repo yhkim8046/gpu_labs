@@ -2,6 +2,9 @@ package cluster
 
 import (
 	"io"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gpu-lab/gpu-lab/internal/runner"
@@ -107,5 +110,70 @@ func TestRenderAssetReplacesRuntimeImage(t *testing.T) {
 	want := "image: ghcr.io/example/gpu-lab-runtime:1.2.3\nimagePullPolicy: IfNotPresent\n"
 	if got != want {
 		t.Fatalf("renderAsset() = %q, want %q", got, want)
+	}
+}
+
+func TestHelmCommandClassification(t *testing.T) {
+	for _, args := range [][]string{
+		{"install", "demo", "repo/chart"},
+		{"list", "--all-namespaces"},
+		{"status", "demo"},
+	} {
+		if !helmUsesCluster(args) {
+			t.Fatalf("helmUsesCluster(%v) = false, want true", args)
+		}
+	}
+	for _, args := range [][]string{
+		{"repo", "add", "demo", "https://example.invalid"},
+		{"search", "repo", "demo"},
+		{"show", "values", "repo/chart"},
+	} {
+		if helmUsesCluster(args) {
+			t.Fatalf("helmUsesCluster(%v) = true, want false", args)
+		}
+	}
+}
+
+func TestFindComponentAlias(t *testing.T) {
+	component, ok := FindComponent("kube-prometheus-stack")
+	if !ok || component.Name != ComponentMonitoring {
+		t.Fatalf("FindComponent alias = %#v, %v; want monitoring", component, ok)
+	}
+}
+
+func TestEmbeddedComponentChartUsesSelectedRuntimeImage(t *testing.T) {
+	m := Manager{Image: "ghcr.io/example/runtime:course", LabChartMode: "embedded"}
+	chartPath, chartVersion, cleanup, err := m.componentChart(ComponentDCGMExporter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if chartVersion != "" {
+		t.Fatalf("chart version = %q, want empty for embedded chart", chartVersion)
+	}
+	values, err := os.ReadFile(filepath.Join(chartPath, "values.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(values), "image: ghcr.io/example/runtime:course") {
+		t.Fatalf("values = %q, want rendered runtime image", values)
+	}
+}
+
+func TestReleaseComponentChartUsesVersionedOCIReference(t *testing.T) {
+	oldVersion := version.Version
+	defer func() { version.Version = oldVersion }()
+	version.Version = "v0.2.0"
+	m := Manager{LabChartMode: ImageSourceRegistry, LabChartRepo: "oci://ghcr.io/example/charts"}
+	chartPath, chartVersion, cleanup, err := m.componentChart(ComponentDevicePlugin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if chartPath != "oci://ghcr.io/example/charts/nvidia-device-plugin" {
+		t.Fatalf("chart path = %q", chartPath)
+	}
+	if chartVersion != "0.2.0" {
+		t.Fatalf("chart version = %q, want 0.2.0", chartVersion)
 	}
 }

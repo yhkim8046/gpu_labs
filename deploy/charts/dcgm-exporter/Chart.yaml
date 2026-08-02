@@ -1,0 +1,8 @@
+apiVersion: v2
+name: dcgm-exporter
+description: Synthetic DCGM Exporter for the GPU Lab course environment
+type: application
+version: 0.1.0
+appVersion: synthetic
+annotations:
+  org.opencontainers.image.source: https://github.com/yhkim8046/gpu_labs

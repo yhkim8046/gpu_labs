@@ -23,7 +23,7 @@ import (
 
 func main() {
 	if err := run(context.Background(), os.Args[1:], os.Stdout, os.Stderr); err != nil {
-		fmt.Fprintln(os.Stderr, "gpu-lab:", err)
+		fmt.Fprintln(os.Stderr, "gpu:", err)
 		os.Exit(exitCode(err))
 	}
 }
@@ -35,7 +35,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}
 	if args[0] == "version" || args[0] == "--version" || args[0] == "-v" {
 		if len(args) != 1 {
-			return errors.New("usage: gpu-lab version")
+			return errors.New("usage: gpu version")
 		}
 		fmt.Fprintln(stdout, version.String())
 		return nil
@@ -44,10 +44,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	m := cluster.NewManager(r)
 	switch args[0] {
 	case "helm":
-		if len(args) == 1 {
-			return errors.New("usage: gpu-lab helm <official-helm-args...>")
-		}
-		return m.Helm(ctx, args[1:]...)
+		return helmCommand(ctx, m, args[1:], stdout)
 	case "create":
 		return createCommand(ctx, m, args[1:], stdout)
 	case "destroy":
@@ -69,13 +66,14 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	case "scenario":
 		return scenarioCommand(ctx, m, args[1:], stdout)
 	default:
-		return fmt.Errorf("unknown command %q; run gpu-lab help", args[0])
+		return fmt.Errorf("unknown command %q; run gpu help", args[0])
 	}
 }
 
 type createOptions struct {
 	image       string
 	imageSource string
+	installAll  bool
 }
 
 func createCommand(ctx context.Context, m cluster.Manager, args []string, stdout io.Writer) error {
@@ -108,7 +106,15 @@ func createCommand(ctx context.Context, m cluster.Manager, args []string, stdout
 	if err := m.Create(createCtx); err != nil {
 		return err
 	}
-	fmt.Fprintln(stdout, "gpu-lab cluster is ready")
+	fmt.Fprintln(stdout, "gpu-lab base cluster is ready")
+	if options.installAll {
+		if err := m.InstallAll(createCtx); err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout, "all GPU Lab Helm components are installed")
+		return nil
+	}
+	fmt.Fprintln(stdout, "next: gpu helm install nvidia-device-plugin")
 	return nil
 }
 
@@ -128,7 +134,7 @@ func parseCreateArgs(args []string) (createOptions, error) {
 			options.imageSource = cluster.ImageSourceRegistry
 		case "--image-source":
 			if i+1 >= len(args) {
-				return createOptions{}, errors.New("usage: gpu-lab create [--local|--registry] [--image <image>]")
+				return createOptions{}, errors.New("usage: gpu create [--local|--registry] [--image <image>] [--all]")
 			}
 			i++
 			source := args[i]
@@ -141,20 +147,54 @@ func parseCreateArgs(args []string) (createOptions, error) {
 			options.imageSource = source
 		case "--image":
 			if i+1 >= len(args) || args[i+1] == "" {
-				return createOptions{}, errors.New("usage: gpu-lab create [--local|--registry] [--image <image>]")
+				return createOptions{}, errors.New("usage: gpu create [--local|--registry] [--image <image>] [--all]")
 			}
 			i++
 			options.image = args[i]
+		case "--all":
+			options.installAll = true
 		default:
-			return createOptions{}, fmt.Errorf("unknown create option %q; run gpu-lab create --help", args[i])
+			return createOptions{}, fmt.Errorf("unknown create option %q; run gpu create --help", args[i])
 		}
 	}
 	return options, nil
 }
 
+func helmCommand(ctx context.Context, m cluster.Manager, args []string, stdout io.Writer) error {
+	if len(args) == 0 || (len(args) == 1 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help")) {
+		printHelmHelp(stdout)
+		return nil
+	}
+	if len(args) == 1 && args[0] == "catalog" {
+		fmt.Fprintln(stdout, "COMPONENT\tNAMESPACE\tDESCRIPTION")
+		for _, component := range cluster.Components() {
+			fmt.Fprintf(stdout, "%s\t%s\t%s\n", component.Name, component.Namespace, component.Description)
+		}
+		return nil
+	}
+	if len(args) >= 2 && args[0] == "install" {
+		if args[1] == "all" && len(args) == 2 {
+			return m.InstallAll(ctx)
+		}
+		if _, known := cluster.FindComponent(args[1]); known && (len(args) == 2 || strings.HasPrefix(args[2], "-")) {
+			if err := m.InstallComponent(ctx, args[1], args[2:]...); err != nil {
+				return err
+			}
+			fmt.Fprintf(stdout, "%s installed with official Helm\n", args[1])
+			return nil
+		}
+	}
+	if len(args) >= 2 && (args[0] == "uninstall" || args[0] == "delete") {
+		if _, known := cluster.FindComponent(args[1]); known && (len(args) == 2 || strings.HasPrefix(args[2], "-")) {
+			return m.UninstallComponent(ctx, args[1], args[2:]...)
+		}
+	}
+	return m.Helm(ctx, args...)
+}
+
 func verifyScenario(ctx context.Context, r runner.Runner, args []string, stdout io.Writer) error {
 	if len(args) != 1 {
-		return errors.New("usage: gpu-lab verify <scenario>")
+		return errors.New("usage: gpu verify <scenario>")
 	}
 	selected, err := scenario.LoadBuiltin(args[0])
 	if err != nil {
@@ -164,7 +204,7 @@ func verifyScenario(ctx context.Context, r runner.Runner, args []string, stdout 
 	defer cancel()
 	report := verification.New(r).Verify(verifyCtx, selected)
 	failures := 0
-	fmt.Fprintf(stdout, "gpu-lab verify %s\n", report.Scenario)
+	fmt.Fprintf(stdout, "gpu verify %s\n", report.Scenario)
 	for _, check := range report.Checks {
 		status := "PASS"
 		if !check.Passed {
@@ -182,7 +222,7 @@ func verifyScenario(ctx context.Context, r runner.Runner, args []string, stdout 
 
 func scenarioCommand(ctx context.Context, m cluster.Manager, args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: gpu-lab scenario list|run|inspect <name>|reset")
+		return errors.New("usage: gpu scenario list|run|inspect <name>|reset")
 	}
 	switch args[0] {
 	case "list":
@@ -198,7 +238,7 @@ func scenarioCommand(ctx context.Context, m cluster.Manager, args []string, stdo
 		return reset(ctx, m, stdout)
 	case "run":
 		if len(args) < 2 {
-			return errors.New("usage: gpu-lab scenario run <name> [--file path]")
+			return errors.New("usage: gpu scenario run <name> [--file path]")
 		}
 		name := args[1]
 		var selected scenario.Scenario
@@ -229,7 +269,7 @@ func dashboardCommand(ctx context.Context, r runner.Runner, args []string, stdou
 		switch args[i] {
 		case "--port":
 			if i+1 >= len(args) {
-				return errors.New("usage: gpu-lab dashboard [--port <port>]")
+				return errors.New("usage: gpu dashboard [--port <port>]")
 			}
 			i++
 			port, err := strconv.Atoi(args[i])
@@ -239,13 +279,13 @@ func dashboardCommand(ctx context.Context, r runner.Runner, args []string, stdou
 			options.port = port
 		case "--help", "-h":
 			if len(args) != 1 {
-				return errors.New("usage: gpu-lab dashboard [--port <port>]")
+				return errors.New("usage: gpu dashboard [--port <port>]")
 			}
-			fmt.Fprintln(stdout, "gpu-lab dashboard — forward Grafana to localhost")
-			fmt.Fprintln(stdout, "Usage: gpu-lab dashboard [--port <port>]")
+			fmt.Fprintln(stdout, "gpu dashboard — forward Grafana to localhost")
+			fmt.Fprintln(stdout, "Usage: gpu dashboard [--port <port>]")
 			return nil
 		default:
-			return fmt.Errorf("unknown dashboard option %q; run gpu-lab dashboard --help", args[i])
+			return fmt.Errorf("unknown dashboard option %q; run gpu dashboard --help", args[i])
 		}
 	}
 	fmt.Fprintf(stdout, "Grafana: http://127.0.0.1:%d\n", options.port)
@@ -275,8 +315,8 @@ type metricsOptions struct {
 
 func metricsCommand(ctx context.Context, r runner.Runner, args []string, stdout io.Writer) error {
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-		fmt.Fprintln(stdout, "gpu-lab metrics — show lab metrics")
-		fmt.Fprintln(stdout, "Usage: gpu-lab metrics [--query <PromQL>] [--json]")
+		fmt.Fprintln(stdout, "gpu metrics — show lab metrics")
+		fmt.Fprintln(stdout, "Usage: gpu metrics [--query <PromQL>] [--json]")
 		return nil
 	}
 	options, err := parseMetricsArgs(args)
@@ -302,7 +342,7 @@ func metricsCommand(ctx context.Context, r runner.Runner, args []string, stdout 
 		}
 		return writeJSON(stdout, values)
 	}
-	fmt.Fprintln(stdout, "gpu-lab metrics")
+	fmt.Fprintln(stdout, "gpu metrics")
 	for _, query := range defaultMetricQueries {
 		result, err := client.Query(ctx, query.Query)
 		if err != nil {
@@ -319,16 +359,16 @@ func parseMetricsArgs(args []string) (metricsOptions, error) {
 		switch args[i] {
 		case "--query":
 			if i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" {
-				return metricsOptions{}, errors.New("usage: gpu-lab metrics [--query <PromQL>] [--json]")
+				return metricsOptions{}, errors.New("usage: gpu metrics [--query <PromQL>] [--json]")
 			}
 			i++
 			options.query = args[i]
 		case "--json":
 			options.json = true
 		case "--help", "-h":
-			return metricsOptions{}, errors.New("usage: gpu-lab metrics [--query <PromQL>] [--json]")
+			return metricsOptions{}, errors.New("usage: gpu metrics [--query <PromQL>] [--json]")
 		default:
-			return metricsOptions{}, fmt.Errorf("unknown metrics option %q; run gpu-lab metrics --help", args[i])
+			return metricsOptions{}, fmt.Errorf("unknown metrics option %q; run gpu metrics --help", args[i])
 		}
 	}
 	return options, nil
@@ -373,7 +413,7 @@ func writeJSON(stdout io.Writer, value any) error {
 
 func inspectScenario(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: gpu-lab scenario inspect <name> [--file path]")
+		return errors.New("usage: gpu scenario inspect <name> [--file path]")
 	}
 	name := args[0]
 	var selected scenario.Scenario
@@ -383,7 +423,7 @@ func inspectScenario(args []string, stdout io.Writer) error {
 	} else if len(args) == 3 && args[1] == "--file" {
 		selected, err = scenario.LoadFile(args[2])
 	} else {
-		return errors.New("usage: gpu-lab scenario inspect <name> [--file path]")
+		return errors.New("usage: gpu scenario inspect <name> [--file path]")
 	}
 	if err != nil {
 		return err
@@ -505,7 +545,7 @@ func contextCommand(ctx context.Context, m cluster.Manager, args []string, stdou
 		return nil
 	case "use":
 		if len(args) != 2 {
-			return errors.New("usage: gpu-lab context use <context-name>")
+			return errors.New("usage: gpu context use <context-name>")
 		}
 		if err := m.UseContext(ctx, args[1]); err != nil {
 			return err
@@ -585,7 +625,7 @@ func doctor(ctx context.Context, r runner.Runner, stdout io.Writer) error {
 		fmt.Fprintln(stdout)
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("install missing tools before running gpu-lab create: %s", strings.Join(missing, ", "))
+		return fmt.Errorf("install missing tools before running gpu create: %s", strings.Join(missing, ", "))
 	}
 	return nil
 }
@@ -606,53 +646,84 @@ func versionArgs(name string) []string {
 }
 
 func printHelp(w io.Writer) {
-	_, _ = io.WriteString(w, `gpu-lab — Kubernetes GPU infrastructure lab
+	_, _ = io.WriteString(w, `gpu — Kubernetes GPU infrastructure lab
 
 Usage:
-  gpu-lab version
-  gpu-lab create [--local|--registry] [--image <image>]
-  gpu-lab destroy
-  gpu-lab reset
-  gpu-lab doctor
-  gpu-lab status
-  gpu-lab dashboard [--port <port>]
-  gpu-lab metrics [--query <PromQL>] [--json]
-  gpu-lab verify <scenario>
-  gpu-lab context list
-  gpu-lab context setup
-  gpu-lab context use <context-name>
-  gpu-lab scenario list
-  gpu-lab scenario run <name>
-  gpu-lab scenario inspect <name> [--file path]
-  gpu-lab scenario reset
-  gpu-lab helm <official-helm-args...>
+  gpu version
+  gpu create [--local|--registry] [--image <image>] [--all]
+  gpu destroy
+  gpu reset
+  gpu doctor
+  gpu status
+  gpu dashboard [--port <port>]
+  gpu metrics [--query <PromQL>] [--json]
+  gpu verify <scenario>
+  gpu context list
+  gpu context setup
+  gpu context use <context-name>
+  gpu scenario list
+  gpu scenario run <name>
+  gpu scenario inspect <name> [--file path]
+  gpu scenario reset
+  gpu helm catalog
+  gpu helm install <gpu-lab-component>
+  gpu helm <official-helm-args...>
 
 Examples:
-  gpu-lab create
-  gpu-lab scenario run xid-79
-  gpu-lab helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+  gpu create
+  gpu helm install nvidia-device-plugin
+  gpu helm install dcgm-exporter
+  gpu helm install monitoring
+  gpu scenario run xid-79
+  gpu helm list --all-namespaces
 
 Image environment:
   GPU_LAB_IMAGE=<image>                         override runtime image
   GPU_LAB_IMAGE_SOURCE=auto|local|registry      choose build or pull mode
   GPU_LAB_RUNTIME_IMAGE_REPOSITORY=<repository> release image repository
+  GPU_LAB_COMPONENT_CHART_SOURCE=auto|embedded|registry
+  GPU_LAB_COMPONENT_CHART_REPOSITORY=<oci-repository>
 `)
 }
 
 func printCreateHelp(w io.Writer) {
-	_, _ = io.WriteString(w, `gpu-lab create — create or reuse the GPU lab cluster
+	_, _ = io.WriteString(w, `gpu create — create or reuse the base GPU lab cluster
 
 Usage:
-  gpu-lab create
-  gpu-lab create --local
-  gpu-lab create --registry
-  gpu-lab create --image ghcr.io/<owner>/gpu-lab-runtime:1.0.0
+  gpu create
+  gpu create --local
+  gpu create --registry
+  gpu create --image ghcr.io/<owner>/gpu-lab-runtime:1.0.0
+  gpu create --all
 
 Options:
   --local                  build and load the local gpu-lab:dev image
   --registry               pull and load the versioned runtime image
   --image <image>          override the runtime image reference
   --image-source <source> choose auto, local, or registry
+  --all                    install all components after cluster bootstrap
+`)
+}
+
+func printHelmHelp(w io.Writer) {
+	_, _ = io.WriteString(w, `gpu helm — use official Helm against the GPU Lab cluster
+
+Course components:
+  gpu helm catalog
+  gpu helm install nvidia-device-plugin
+  gpu helm install dcgm-exporter
+  gpu helm install monitoring
+  gpu helm uninstall <component>
+
+Official Helm passthrough:
+  gpu helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+  gpu helm search repo prometheus-community
+  gpu helm install <release> <chart> [official Helm flags...]
+  gpu helm list --all-namespaces
+
+The component shorthand expands to a real Helm install. Cluster-aware Helm
+commands default to the gpu-lab kube context. The legacy gpu-lab binary name
+remains available for compatibility.
 `)
 }
 

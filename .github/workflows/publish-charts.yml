@@ -1,0 +1,46 @@
+name: Publish Helm charts
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      HELM_VERSION: v4.2.3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pinned Helm
+        run: |
+          curl --fail --silent --show-error --location --retry 3 \
+            --output "helm-${HELM_VERSION}-linux-amd64.tar.gz" \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            --output "helm-${HELM_VERSION}-linux-amd64.tar.gz.sha256sum" \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz.sha256sum"
+          sha256sum -c "helm-${HELM_VERSION}-linux-amd64.tar.gz.sha256sum"
+          tar -xzf "helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          sudo install linux-amd64/helm /usr/local/bin/helm
+
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io --username "${{ github.actor }}" --password-stdin
+
+      - name: Package and publish charts
+        env:
+          CHART_VERSION: ${{ github.ref_name }}
+        run: |
+          version="${CHART_VERSION#v}"
+          mkdir -p chart-dist
+          for chart in nvidia-device-plugin dcgm-exporter; do
+            helm lint "deploy/charts/${chart}"
+            helm package "deploy/charts/${chart}" --version "$version" --destination chart-dist
+            helm push "chart-dist/${chart}-${version}.tgz" "oci://ghcr.io/${GITHUB_REPOSITORY_OWNER}/gpu-lab-charts"
+          done
