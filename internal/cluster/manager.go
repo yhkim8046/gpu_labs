@@ -177,6 +177,17 @@ func (m Manager) RemoveLegacyComponents(ctx context.Context) error {
 	if err := m.Runner.Run(ctx, "kubectl", args...); err != nil {
 		return fmt.Errorf("remove legacy gpu component resources: %w", err)
 	}
+	// A new kind cluster does not have the Prometheus Operator CRD yet.
+	// `--ignore-not-found` does not suppress kubectl's "server doesn't have a
+	// resource type" error, so discover the CRD before deleting the legacy
+	// object. Existing clusters still get the cleanup.
+	crd, err := m.Runner.Output(ctx, "kubectl", "--context", KubeContext, "get", "crd/servicemonitors.monitoring.coreos.com", "-o", "name", "--ignore-not-found=true")
+	if err != nil {
+		return fmt.Errorf("check legacy ServiceMonitor CRD: %w", err)
+	}
+	if strings.TrimSpace(crd) == "" {
+		return nil
+	}
 	if err := m.Runner.Run(ctx, "kubectl", "--context", KubeContext, "delete", "servicemonitor/mock-gpu-exporter", "-n", MonitoringNS, "--ignore-not-found=true"); err != nil {
 		return fmt.Errorf("remove legacy mock exporter ServiceMonitor: %w", err)
 	}
