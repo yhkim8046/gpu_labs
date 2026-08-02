@@ -337,11 +337,14 @@ CLI binary 이름은 `gpu-lab`이며 Go로 구현합니다. 외부 command 실�
 | `gpu-lab reset` | scenario reset과 lab-owned 상태 복구 |
 | `gpu-lab doctor` | Docker, kind, kubectl, helm, context, port, image pull 가능 여부 진단 |
 | `gpu-lab status` | node/resource/pod/monitoring/scenario 요약 |
+| `gpu-lab dashboard [--port <port>]` | Grafana service port-forward shortcut |
+| `gpu-lab metrics [--query <PromQL>] [--json]` | 기본 GPU metric 또는 custom PromQL 조회 |
 | `gpu-lab context list` | 현재 context와 사용 가능한 kubeconfig context 표시 |
 | `gpu-lab context setup` | dedicated kubeconfig와 `gpu-lab` alias context 생성 |
 | `gpu-lab context use <name>` | 기본 kubeconfig의 current-context 전환 |
 | `gpu-lab scenario list` | 내장 YAML scenario 목록 표시 |
 | `gpu-lab scenario run <name>` | scenario 검증·적용·상태 확인 |
+| `gpu-lab scenario inspect <name>` | 실행 전 scenario duration, target, metric, action 확인 |
 | `gpu-lab scenario reset` | `normal` 복구 |
 | `gpu-lab verify <name>` | active ConfigMap, Prometheus metric, Pod phase/event 검증 |
 | `gpu-lab helm <official-helm-args...>` | 로컬 공식 Helm CLI를 그대로 실행 |
@@ -387,14 +390,14 @@ gpu-lab helm install gpu-lab-monitoring prometheus-community/kube-prometheus-sta
 - 현재 scenario
 - 다음 강의 실습 명령
 
-실패 시 단계, 원인 후보, 복구 명령을 함께 출력합니다. 모든 명령에는 `--verbose`와 `--json` 출력 옵션을 둡니다.
+실패 시 단계, 원인 후보, 복구 명령을 함께 출력합니다. 구조화된 결과가 필요한 명령은 `--json`을 제공하고, long-running 접근 명령은 포트와 context를 명시적으로 선택할 수 있게 합니다.
 
 ## 9. Repository structure proposal
 
 ```text
 gpu-lab/
 ├── README.md
-├── LICENSE                         # 공개 전 라이선스 확정 후 추가
+├── LICENSE                         # MIT license
 ├── go.mod
 ├── go.sum
 ├── Makefile
@@ -426,6 +429,8 @@ gpu-lab/
 │   └── e2e/
 ├── docs/
 │   ├── architecture.md
+│   ├── metric-mapping.md
+│   ├── support-matrix.md
 │   ├── troubleshooting.md
 │   └── synthetic-vs-real.md
 └── .github/

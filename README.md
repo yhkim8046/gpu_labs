@@ -26,7 +26,7 @@ gpu-lab은 GPU나 CUDA를 흉내 내는 프로젝트가 아닙니다. Kubernetes
 - Docker Engine 또는 Docker Desktop
 - kind 기반 실행
 
-MVP 구현 단계에서는 `docker`, `kind`, `kubectl`, `helm`을 CLI가 진단하고 필요한 리소스를 자동 설치하는 방식으로 구성합니다. Helm chart 설치가 필요할 때는 공식 Helm CLI를 그대로 호출할 수 있습니다.
+MVP 구현 단계에서는 `docker`, `kind`, `kubectl`, `helm`을 CLI가 진단하고 필요한 Kubernetes 리소스를 자동 구성하는 방식으로 동작합니다. 로컬 의존성 바이너리는 공식 설치 방법으로 준비하며, Helm chart 설치가 필요할 때는 공식 Helm CLI를 그대로 호출할 수 있습니다.
 
 ```bash
 gpu-lab helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
@@ -42,6 +42,9 @@ gpu-lab helm install gpu-lab-monitoring prometheus-community/kube-prometheus-sta
 - [Getting Started](docs/getting-started.md)
 - [Release & Installation](docs/release.md)
 - [Scenario Runbook](docs/scenarios.md)
+- [Synthetic vs Real](docs/synthetic-vs-real.md)
+- [Metric Mapping](docs/metric-mapping.md)
+- [Support Matrix](docs/support-matrix.md)
 - [Course Readiness & Roadmap](docs/course-readiness.md)
 
 문서에는 다음 내용이 포함되어 있습니다.
@@ -89,8 +92,11 @@ Release binary는 CLI version에 맞는 GHCR image를 자동으로 사용합니�
 ```bash
 go run ./cmd/gpu-lab doctor
 go run ./cmd/gpu-lab scenario list
+go run ./cmd/gpu-lab scenario inspect xid-79
 go run ./cmd/gpu-lab scenario run xid-79
 go run ./cmd/gpu-lab verify xid-79
+go run ./cmd/gpu-lab metrics
+go run ./cmd/gpu-lab dashboard
 go run ./cmd/gpu-lab scenario reset
 go run ./cmd/gpu-lab helm repo list
 go run ./cmd/gpu-lab context list
@@ -102,6 +108,8 @@ go run ./cmd/gpu-lab context use gpu-lab
 ```bash
 go run ./cmd/gpu-lab create
 go run ./cmd/gpu-lab status
+go run ./cmd/gpu-lab metrics
+go run ./cmd/gpu-lab dashboard --port 3000
 go run ./cmd/gpu-lab verify normal
 go run ./cmd/gpu-lab destroy
 ```

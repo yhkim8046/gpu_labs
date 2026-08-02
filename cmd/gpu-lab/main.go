@@ -2,16 +2,19 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gpu-lab/gpu-lab/internal/cluster"
+	"github.com/gpu-lab/gpu-lab/internal/monitoring"
 	"github.com/gpu-lab/gpu-lab/internal/runner"
 	"github.com/gpu-lab/gpu-lab/internal/scenario"
 	"github.com/gpu-lab/gpu-lab/internal/verification"
@@ -53,6 +56,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return doctor(ctx, r, stdout)
 	case "status":
 		return m.Status(ctx)
+	case "dashboard":
+		return dashboardCommand(ctx, r, args[1:], stdout)
+	case "metrics":
+		return metricsCommand(ctx, r, args[1:], stdout)
 	case "verify":
 		return verifyScenario(ctx, r, args[1:], stdout)
 	case "context":
@@ -175,7 +182,7 @@ func verifyScenario(ctx context.Context, r runner.Runner, args []string, stdout 
 
 func scenarioCommand(ctx context.Context, m cluster.Manager, args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: gpu-lab scenario list|run <name>|reset")
+		return errors.New("usage: gpu-lab scenario list|run|inspect <name>|reset")
 	}
 	switch args[0] {
 	case "list":
@@ -205,8 +212,265 @@ func scenarioCommand(ctx context.Context, m cluster.Manager, args []string, stdo
 			return err
 		}
 		return applyScenario(ctx, m, selected, stdout)
+	case "inspect":
+		return inspectScenario(args[1:], stdout)
 	default:
 		return fmt.Errorf("unknown scenario command %q", args[0])
+	}
+}
+
+type dashboardOptions struct {
+	port int
+}
+
+func dashboardCommand(ctx context.Context, r runner.Runner, args []string, stdout io.Writer) error {
+	options := dashboardOptions{port: 3000}
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--port":
+			if i+1 >= len(args) {
+				return errors.New("usage: gpu-lab dashboard [--port <port>]")
+			}
+			i++
+			port, err := strconv.Atoi(args[i])
+			if err != nil || port < 1 || port > 65535 {
+				return fmt.Errorf("invalid dashboard port %q", args[i])
+			}
+			options.port = port
+		case "--help", "-h":
+			if len(args) != 1 {
+				return errors.New("usage: gpu-lab dashboard [--port <port>]")
+			}
+			fmt.Fprintln(stdout, "gpu-lab dashboard — forward Grafana to localhost")
+			fmt.Fprintln(stdout, "Usage: gpu-lab dashboard [--port <port>]")
+			return nil
+		default:
+			return fmt.Errorf("unknown dashboard option %q; run gpu-lab dashboard --help", args[i])
+		}
+	}
+	fmt.Fprintf(stdout, "Grafana: http://127.0.0.1:%d\n", options.port)
+	fmt.Fprintln(stdout, "Press Ctrl-C to stop port-forwarding.")
+	return r.Run(ctx, "kubectl", "--context", cluster.KubeContext, "-n", cluster.MonitoringNS, "port-forward", "svc/"+cluster.GrafanaService, fmt.Sprintf("%d:80", options.port))
+}
+
+type metricQuery struct {
+	Name  string
+	Query string
+}
+
+var defaultMetricQueries = []metricQuery{
+	{Name: "GPU utilization (%)", Query: "avg(gpu_lab_gpu_utilization_percent)"},
+	{Name: "GPU memory used (%)", Query: "max(gpu_lab_gpu_memory_used_bytes / gpu_lab_gpu_memory_total_bytes) * 100"},
+	{Name: "GPU temperature (°C)", Query: "max(gpu_lab_gpu_temperature_celsius)"},
+	{Name: "GPU power (W)", Query: "max(gpu_lab_gpu_power_watts)"},
+	{Name: "GPU XID", Query: "max(gpu_lab_gpu_xid_code)"},
+	{Name: "GPU health", Query: "min(gpu_lab_gpu_health)"},
+	{Name: "Exporter targets", Query: `sum(up{service="dcgm-exporter"})`},
+}
+
+type metricsOptions struct {
+	query string
+	json  bool
+}
+
+func metricsCommand(ctx context.Context, r runner.Runner, args []string, stdout io.Writer) error {
+	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
+		fmt.Fprintln(stdout, "gpu-lab metrics — show lab metrics")
+		fmt.Fprintln(stdout, "Usage: gpu-lab metrics [--query <PromQL>] [--json]")
+		return nil
+	}
+	options, err := parseMetricsArgs(args)
+	if err != nil {
+		return err
+	}
+	client := monitoring.New(r)
+	if options.query != "" {
+		result, err := client.Query(ctx, options.query)
+		if err != nil {
+			return err
+		}
+		return printMetricResult(stdout, options.query, result, options.json)
+	}
+	if options.json {
+		values := make(map[string]float64, len(defaultMetricQueries))
+		for _, query := range defaultMetricQueries {
+			result, err := client.Query(ctx, query.Query)
+			if err != nil {
+				return fmt.Errorf("%s: %w", query.Name, err)
+			}
+			values[query.Name] = result.Samples[0].Value
+		}
+		return writeJSON(stdout, values)
+	}
+	fmt.Fprintln(stdout, "gpu-lab metrics")
+	for _, query := range defaultMetricQueries {
+		result, err := client.Query(ctx, query.Query)
+		if err != nil {
+			return fmt.Errorf("%s: %w", query.Name, err)
+		}
+		fmt.Fprintf(stdout, "%-24s %s\n", query.Name, formatMetricValue(result.Samples[0].Value))
+	}
+	return nil
+}
+
+func parseMetricsArgs(args []string) (metricsOptions, error) {
+	options := metricsOptions{}
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--query":
+			if i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" {
+				return metricsOptions{}, errors.New("usage: gpu-lab metrics [--query <PromQL>] [--json]")
+			}
+			i++
+			options.query = args[i]
+		case "--json":
+			options.json = true
+		case "--help", "-h":
+			return metricsOptions{}, errors.New("usage: gpu-lab metrics [--query <PromQL>] [--json]")
+		default:
+			return metricsOptions{}, fmt.Errorf("unknown metrics option %q; run gpu-lab metrics --help", args[i])
+		}
+	}
+	return options, nil
+}
+
+func printMetricResult(stdout io.Writer, expression string, result monitoring.QueryResult, asJSON bool) error {
+	if asJSON {
+		return writeJSON(stdout, struct {
+			Query   string              `json:"query"`
+			Type    string              `json:"result_type"`
+			Samples []monitoring.Sample `json:"samples"`
+		}{expression, result.ResultType, result.Samples})
+	}
+	fmt.Fprintf(stdout, "query: %s\n", expression)
+	for _, sample := range result.Samples {
+		labels := make([]string, 0, len(sample.Metric))
+		for name, value := range sample.Metric {
+			labels = append(labels, fmt.Sprintf("%s=%q", name, value))
+		}
+		sort.Strings(labels)
+		if len(labels) > 0 {
+			fmt.Fprintf(stdout, "%-36s %s\n", "{"+strings.Join(labels, ", ")+"}", formatMetricValue(sample.Value))
+		} else {
+			fmt.Fprintln(stdout, formatMetricValue(sample.Value))
+		}
+	}
+	return nil
+}
+
+func formatMetricValue(value float64) string {
+	return strconv.FormatFloat(value, 'f', 2, 64)
+}
+
+func writeJSON(stdout io.Writer, value any) error {
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(stdout, string(data))
+	return err
+}
+
+func inspectScenario(args []string, stdout io.Writer) error {
+	if len(args) == 0 {
+		return errors.New("usage: gpu-lab scenario inspect <name> [--file path]")
+	}
+	name := args[0]
+	var selected scenario.Scenario
+	var err error
+	if len(args) == 1 {
+		selected, err = scenario.LoadBuiltin(name)
+	} else if len(args) == 3 && args[1] == "--file" {
+		selected, err = scenario.LoadFile(args[2])
+	} else {
+		return errors.New("usage: gpu-lab scenario inspect <name> [--file path]")
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "scenario: %s\n", selected.Name())
+	fmt.Fprintf(stdout, "description: %s\n", selected.Spec.Description)
+	if selected.Spec.Duration == "" {
+		fmt.Fprintln(stdout, "duration: persistent until reset")
+	} else {
+		fmt.Fprintf(stdout, "duration: %s\n", selected.Spec.Duration)
+	}
+	if len(selected.Spec.Targets.Selector) == 0 {
+		fmt.Fprintln(stdout, "targets: all synthetic GPUs")
+	} else {
+		fmt.Fprintln(stdout, "targets:")
+		keys := sortedKeys(selected.Spec.Targets.Selector)
+		for _, key := range keys {
+			fmt.Fprintf(stdout, "  %s=%s\n", key, selected.Spec.Targets.Selector[key])
+		}
+	}
+	fmt.Fprintln(stdout, "metrics:")
+	printMetricOverrides(stdout, selected.Spec.Metrics)
+	if len(selected.Spec.Actions) == 0 {
+		fmt.Fprintln(stdout, "actions: none")
+	} else {
+		fmt.Fprintln(stdout, "actions:")
+		for _, action := range selected.Spec.Actions {
+			fmt.Fprintf(stdout, "  - type=%s", action.Type)
+			if action.Name != "" {
+				fmt.Fprintf(stdout, " name=%s", action.Name)
+			}
+			if action.GPUCount > 0 {
+				fmt.Fprintf(stdout, " gpu_count=%d", action.GPUCount)
+			}
+			if action.Mode != "" {
+				fmt.Fprintf(stdout, " mode=%s", action.Mode)
+			}
+			if action.WaitForReady {
+				fmt.Fprint(stdout, " wait_for_ready=true")
+			}
+			fmt.Fprintln(stdout)
+		}
+	}
+	return nil
+}
+
+func sortedKeys(values map[string]string) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func printMetricOverrides(stdout io.Writer, metrics scenario.MetricOverrides) {
+	count := 0
+	if metrics.GPUUtilizationPercent != nil {
+		fmt.Fprintf(stdout, "  gpu_utilization_percent=%s\n", formatMetricValue(*metrics.GPUUtilizationPercent))
+		count++
+	}
+	if metrics.GPUMemoryUsedPercent != nil {
+		fmt.Fprintf(stdout, "  gpu_memory_used_percent=%s\n", formatMetricValue(*metrics.GPUMemoryUsedPercent))
+		count++
+	}
+	if metrics.GPUMemoryTotalBytes != nil {
+		fmt.Fprintf(stdout, "  gpu_memory_total_bytes=%d\n", *metrics.GPUMemoryTotalBytes)
+		count++
+	}
+	if metrics.TemperatureCelsius != nil {
+		fmt.Fprintf(stdout, "  temperature_celsius=%s\n", formatMetricValue(*metrics.TemperatureCelsius))
+		count++
+	}
+	if metrics.PowerWatts != nil {
+		fmt.Fprintf(stdout, "  power_watts=%s\n", formatMetricValue(*metrics.PowerWatts))
+		count++
+	}
+	if metrics.XIDCode != nil {
+		fmt.Fprintf(stdout, "  xid_code=%d\n", *metrics.XIDCode)
+		count++
+	}
+	if metrics.Health != nil {
+		fmt.Fprintf(stdout, "  health=%d\n", *metrics.Health)
+		count++
+	}
+	if count == 0 {
+		fmt.Fprintln(stdout, "  none")
 	}
 }
 
@@ -304,6 +568,7 @@ func reset(ctx context.Context, m cluster.Manager, stdout io.Writer) error {
 }
 
 func doctor(ctx context.Context, r runner.Runner, stdout io.Writer) error {
+	fmt.Fprintln(stdout, "Synthetic lab: GPU telemetry and device plugin behavior are simulated; no NVIDIA driver or CUDA execution is used.")
 	missing := make([]string, 0)
 	for _, name := range []string{"docker", "kind", "kubectl", "helm"} {
 		if !runner.Exists(name) {
@@ -350,12 +615,15 @@ Usage:
   gpu-lab reset
   gpu-lab doctor
   gpu-lab status
+  gpu-lab dashboard [--port <port>]
+  gpu-lab metrics [--query <PromQL>] [--json]
   gpu-lab verify <scenario>
   gpu-lab context list
   gpu-lab context setup
   gpu-lab context use <context-name>
   gpu-lab scenario list
   gpu-lab scenario run <name>
+  gpu-lab scenario inspect <name> [--file path]
   gpu-lab scenario reset
   gpu-lab helm <official-helm-args...>
 

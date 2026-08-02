@@ -8,6 +8,7 @@
 
 ```bash
 gpu-lab scenario run <name>
+gpu-lab scenario inspect <name>
 gpu-lab status
 kubectl --context gpu-lab get pods -n gpu-lab-demo -o wide
 kubectl --context gpu-lab get events -A --sort-by=.lastTimestamp

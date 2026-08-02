@@ -27,6 +27,7 @@ const (
 	ImageSourceRegistry = "registry"
 	MonitoringRelease   = "gpu-lab-monitoring"
 	MonitoringNS        = "gpu-lab-monitoring"
+	GrafanaService      = "gpu-lab-monitoring-grafana"
 	DefaultChartVersion = "87.21.0"
 )
 

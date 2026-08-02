@@ -91,6 +91,7 @@ gpu-lab helm search repo prometheus-community/kube-prometheus-stack
 
 ```bash
 gpu-lab scenario list
+gpu-lab scenario inspect xid-79
 gpu-lab scenario run normal
 gpu-lab scenario run gpu-util-high
 gpu-lab scenario run vram-pressure
@@ -116,6 +117,8 @@ gpu-lab scenario run my-scenario --file ./my-scenario.yaml
 
 ```bash
 gpu-lab status
+gpu-lab metrics
+gpu-lab metrics --query 'max(gpu_lab_gpu_xid_code)'
 kubectl --context gpu-lab get nodes
 kubectl --context gpu-lab get pods -A
 kubectl --context gpu-lab describe pod -n gpu-lab-demo gpu-lab-scheduling-failure
@@ -126,9 +129,13 @@ Grafana 접근 방식은 설치된 Helm chart의 Service를 확인합니다.
 ```bash
 kubectl --context gpu-lab -n gpu-lab-monitoring get svc
 kubectl --context gpu-lab -n gpu-lab-monitoring port-forward svc/gpu-lab-monitoring-grafana 3000:80
+
+# 위 port-forward를 짧게 쓰는 CLI shortcut
+gpu-lab dashboard
+gpu-lab dashboard --port 3001
 ```
 
-Dashboard의 모든 metric은 `gpu_lab_` prefix를 사용하며, 실제 NVIDIA DCGM metric이 아니라 합성된 교육용 값입니다.
+Dashboard의 모든 metric은 `gpu_lab_` prefix를 사용하며, 실제 NVIDIA DCGM metric이 아니라 합성된 교육용 값입니다. 실제 field와의 대응은 [metric mapping](metric-mapping.md)을 참고합니다.
 
 각 장애의 관찰 명령, 원인 가설, 복구 절차는 [Scenario Runbook](scenarios.md)을 참고합니다.
 

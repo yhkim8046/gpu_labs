@@ -82,3 +82,63 @@ func TestParseCreateArgsRejectsConflictingSources(t *testing.T) {
 		t.Fatal("parseCreateArgs() succeeded for conflicting sources")
 	}
 }
+
+func TestDashboardPassthrough(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture uses POSIX syntax")
+	}
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "args")
+	kubectl := filepath.Join(dir, "kubectl")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$GPU_LAB_TEST_ARGS\"\n"
+	if err := os.WriteFile(kubectl, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldPath := os.Getenv("PATH")
+	oldArgs := os.Getenv("GPU_LAB_TEST_ARGS")
+	defer func() {
+		_ = os.Setenv("PATH", oldPath)
+		_ = os.Setenv("GPU_LAB_TEST_ARGS", oldArgs)
+	}()
+	_ = os.Setenv("PATH", dir+string(os.PathListSeparator)+oldPath)
+	_ = os.Setenv("GPU_LAB_TEST_ARGS", argsFile)
+	var stdout, stderr bytes.Buffer
+	if err := run(context.Background(), []string{"dashboard", "--port", "3200"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Split(strings.TrimSpace(string(data)), "\n")
+	want := []string{"--context", "gpu-lab", "-n", "gpu-lab-monitoring", "port-forward", "svc/gpu-lab-monitoring-grafana", "3200:80"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("args = %v, want %v", got, want)
+	}
+	if !strings.Contains(stdout.String(), "http://127.0.0.1:3200") {
+		t.Fatalf("stdout = %q, want dashboard URL", stdout.String())
+	}
+}
+
+func TestInspectScenario(t *testing.T) {
+	var stdout bytes.Buffer
+	if err := inspectScenario([]string{"xid-79"}, &stdout); err != nil {
+		t.Fatal(err)
+	}
+	output := stdout.String()
+	for _, expected := range []string{"scenario: xid-79", "xid_code=79", "health=0"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("output = %q, missing %q", output, expected)
+		}
+	}
+}
+
+func TestParseMetricsArgs(t *testing.T) {
+	options, err := parseMetricsArgs([]string{"--query", "max(gpu_lab_gpu_xid_code)", "--json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.query != "max(gpu_lab_gpu_xid_code)" || !options.json {
+		t.Fatalf("options = %#v, want query and json", options)
+	}
+}
