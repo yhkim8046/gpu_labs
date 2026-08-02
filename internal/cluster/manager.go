@@ -11,6 +11,7 @@ import (
 
 	deployassets "github.com/gpu-lab/gpu-lab/deploy"
 	"github.com/gpu-lab/gpu-lab/internal/kubeconfig"
+	"github.com/gpu-lab/gpu-lab/internal/monitoring"
 	"github.com/gpu-lab/gpu-lab/internal/runner"
 	"github.com/gpu-lab/gpu-lab/internal/scenario"
 	"github.com/gpu-lab/gpu-lab/internal/version"
@@ -160,7 +161,49 @@ func (m Manager) Create(ctx context.Context) error {
 			return fmt.Errorf("apply %s: %w", asset, err)
 		}
 	}
+	if err := m.waitForMonitoring(ctx); err != nil {
+		return err
+	}
 	return nil
+}
+
+// waitForMonitoring keeps create deterministic on fresh clusters. Helm waits
+// for the operator release, but the Prometheus CR, its StatefulSet, and the
+// first ServiceMonitor scrape are reconciled asynchronously afterwards.
+func (m Manager) waitForMonitoring(ctx context.Context) error {
+	if err := m.Runner.Run(ctx, "kubectl", "--context", KubeContext, "wait", "--for=condition=Ready", "pod", "-l", "app.kubernetes.io/name=prometheus", "-n", MonitoringNS, "--timeout=5m"); err != nil {
+		return fmt.Errorf("wait for Prometheus pod: %w", err)
+	}
+
+	client := monitoring.New(m.Runner)
+	deadline := time.NewTimer(3 * time.Minute)
+	defer deadline.Stop()
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	var lastErr error
+	for {
+		result, err := client.Query(ctx, `sum(up{service="dcgm-exporter"})`)
+		if err == nil && len(result.Samples) > 0 && result.Samples[0].Value == 3 {
+			return nil
+		}
+		if err != nil {
+			lastErr = err
+		} else {
+			lastErr = fmt.Errorf("expected 3 dcgm-exporter targets, got %s", formatMonitoringValue(result.Samples[0].Value))
+		}
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for initial DCGM Exporter scrape: %w", ctx.Err())
+		case <-deadline.C:
+			return fmt.Errorf("wait for initial DCGM Exporter scrape: %w", lastErr)
+		case <-ticker.C:
+		}
+	}
+}
+
+func formatMonitoringValue(value float64) string {
+	return fmt.Sprintf("%g", value)
 }
 
 func (m Manager) RemoveLegacyComponents(ctx context.Context) error {
