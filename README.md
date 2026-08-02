@@ -14,7 +14,7 @@ gpu-lab은 GPU나 CUDA를 흉내 내는 프로젝트가 아닙니다. Kubernetes
 - DCGM Exporter의 관측 모델을 따르는 synthetic `dcgm-exporter`
 - Prometheus와 Grafana 기반 GPU monitoring
 - YAML 기반 GPU incident scenario
-- scheduling failure, exporter down, thermal, ECC/XID, idle GPU, selector mismatch, fragmentation troubleshooting
+- scheduling failure, exporter down, thermal, ECC/XID, power throttling, PCIe replay, idle GPU, capacity mismatch, selector mismatch, fragmentation troubleshooting
 
 실제 GPU 장치, NVIDIA driver, CUDA kernel 실행은 범위에 포함하지 않습니다.
 
@@ -43,6 +43,7 @@ gpu helm list --all-namespaces
 
 - [Architecture Proposal](docs/architecture.md)
 - [Getting Started](docs/getting-started.md)
+- [Student Guide](docs/student-guide.md)
 - [Release & Installation](docs/release.md)
 - [Scenario Runbook](docs/scenarios.md)
 - [Synthetic vs Real](docs/synthetic-vs-real.md)

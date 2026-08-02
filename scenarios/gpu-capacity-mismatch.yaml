@@ -1,0 +1,20 @@
+apiVersion: gpu-lab.io/v1alpha1
+kind: Scenario
+metadata:
+  name: gpu-capacity-mismatch
+spec:
+  description: GPU telemetry reports fewer allocatable devices than the device plugin scheduler state
+  metrics:
+    gpu_utilization_percent: 48
+    gpu_memory_used_percent: 36
+    temperature_celsius: 58
+    power_watts: 130
+    gpu_capacity: 8
+    gpu_allocatable: 4
+  actions:
+    - type: create_gpu_workload
+      name: gpu-lab-capacity-mismatch-workload
+      gpu_count: 4
+      node_selector:
+        gpu.lab/node-id: gpu-node-01
+      wait_for_ready: true

@@ -13,6 +13,13 @@
 | `gpu_lab_gpu_power_watts` | 전력 사용량, `W` | `DCGM_FI_DEV_POWER_USAGE` | 실제 field의 canonical 이름은 `DCGM_FI_DEV_BOARD_POWER_WATTS`입니다. |
 | `gpu_lab_gpu_xid_code` | 현재 synthetic XID, 정수 | `DCGM_FI_DEV_XID_ERRORS`, 또는 `DCGM_EXP_XID_ERRORS_*` | 실제 환경에서는 error code label, count/total, kernel log를 함께 봐야 합니다. |
 | `gpu_lab_gpu_health` | `1=healthy`, `0=unhealthy` | `DCGM_EXP_GPU_HEALTH_STATUS` | DCGM health status는 `0=PASS`, `10=WARN`, `20=FAIL`이므로 값 체계가 다릅니다. |
+| `gpu_lab_gpu_health_status` | DCGM 스타일 synthetic health code | `DCGM_EXP_GPU_HEALTH_STATUS` | Lab은 PASS/FAIL 중심으로 합성하며 실제 health watch/error metadata 전체를 재현하지 않습니다. |
+| `gpu_lab_gpu_ecc_dbe_total` | 누적 double-bit ECC 오류 | `DCGM_FI_DEV_ECC_DBE_VOL_TOTAL` / `DCGM_FI_DEV_ECC_DBE_AGG_TOTAL` | 실제 환경에서는 volatile과 aggregate counter를 구분합니다. |
+| `gpu_lab_gpu_power_violation_total` | 누적 power limit violation | `DCGM_FI_DEV_POWER_VIOLATION` | Counter 증가율과 power/clock을 함께 확인합니다. |
+| `gpu_lab_gpu_pcie_replay_total` | 누적 PCIe replay 오류 | `DCGM_FI_DEV_PCIE_REPLAY_COUNTER` | 실제 field는 하드웨어와 DCGM 버전에 따라 지원 여부가 다릅니다. |
+| `gpu_lab_gpu_throttle_active` | synthetic clock throttle 상태 | `DCGM_FI_DEV_CLOCKS_EVENT_REASONS` 계열 | Lab은 `reason` label로 power-cap만 재현합니다. |
+| `gpu_lab_gpu_allocated` | workload가 GPU를 예약했는지 | Kubernetes PodResources API / Pod resource request | Lab projection이며 실제 Pod별 GPU mapping을 대체하지 않습니다. |
+| `gpu_lab_node_gpu_capacity` / `gpu_lab_node_gpu_allocatable` | Node GPU resource 상태 | Kubernetes Node `.status.capacity` / `.status.allocatable` | Lab의 capacity mismatch는 실제 kubelet 상태를 변경하지 않습니다. |
 | `gpu_lab_exporter_up` | synthetic exporter process 상태 | Prometheus `up{job=...}` | exporter 자체와 GPU health는 별개의 장애 축입니다. |
 | `gpu_lab_scenario_info` / `generation` | 현재 실습 scenario 식별자 | 실제 환경에 직접 대응 없음 | Lab control-plane 메타데이터입니다. |
 

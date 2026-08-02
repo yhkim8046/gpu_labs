@@ -1,0 +1,15 @@
+apiVersion: gpu-lab.io/v1alpha1
+kind: Scenario
+metadata:
+  name: power-throttle
+spec:
+  description: Power-limit violations force the GPU clocks to throttle while utilization falls
+  metrics:
+    gpu_utilization_percent: 62
+    gpu_memory_used_percent: 74
+    temperature_celsius: 84
+    power_watts: 245
+    power_violation_total: 25
+    throttle_active: 1
+    throttle_reason: power_cap
+  actions: []

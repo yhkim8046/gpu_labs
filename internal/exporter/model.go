@@ -21,14 +21,20 @@ const (
 )
 
 type Reading struct {
-	GPU                string  `json:"gpu"`
-	UtilizationPercent float64 `json:"utilization_percent"`
-	MemoryUsedBytes    int64   `json:"memory_used_bytes"`
-	MemoryTotalBytes   int64   `json:"memory_total_bytes"`
-	TemperatureCelsius float64 `json:"temperature_celsius"`
-	PowerWatts         float64 `json:"power_watts"`
-	XIDCode            int     `json:"xid_code"`
-	Health             int     `json:"health"`
+	GPU                 string  `json:"gpu"`
+	UtilizationPercent  float64 `json:"utilization_percent"`
+	MemoryUsedBytes     int64   `json:"memory_used_bytes"`
+	MemoryTotalBytes    int64   `json:"memory_total_bytes"`
+	TemperatureCelsius  float64 `json:"temperature_celsius"`
+	PowerWatts          float64 `json:"power_watts"`
+	XIDCode             int     `json:"xid_code"`
+	Health              int     `json:"health"`
+	ECCDbeTotal         int64   `json:"ecc_dbe_total"`
+	PowerViolationTotal int64   `json:"power_violation_total"`
+	PCIeReplayTotal     int64   `json:"pcie_replay_total"`
+	ThrottleActive      int     `json:"throttle_active"`
+	ThrottleReason      string  `json:"throttle_reason"`
+	Allocated           int     `json:"allocated"`
 }
 
 type StateSnapshot struct {
@@ -88,6 +94,7 @@ func (m *Model) Apply(s scenario.Scenario, generation string) {
 			PowerWatts:         defaultPower,
 			XIDCode:            0,
 			Health:             1,
+			ThrottleReason:     "none",
 		}
 		if metrics.GPUUtilizationPercent != nil {
 			reading.UtilizationPercent = *metrics.GPUUtilizationPercent
@@ -103,6 +110,33 @@ func (m *Model) Apply(s scenario.Scenario, generation string) {
 		}
 		if metrics.Health != nil {
 			reading.Health = *metrics.Health
+		}
+		if metrics.ECCDbeTotal != nil {
+			reading.ECCDbeTotal = *metrics.ECCDbeTotal
+		}
+		if metrics.PowerViolationTotal != nil {
+			reading.PowerViolationTotal = *metrics.PowerViolationTotal
+		}
+		if metrics.PCIeReplayTotal != nil {
+			reading.PCIeReplayTotal = *metrics.PCIeReplayTotal
+		}
+		if metrics.ThrottleActive != nil {
+			reading.ThrottleActive = *metrics.ThrottleActive
+		}
+		if metrics.ThrottleReason != "" {
+			reading.ThrottleReason = metrics.ThrottleReason
+		}
+		allocationCount := 0
+		if metrics.GPUAllocatedCount != nil {
+			allocationCount = *metrics.GPUAllocatedCount
+			if action, ok := scenario.HasAction(s, "create_gpu_workload"); ok {
+				if target, targeted := action.NodeSelector["gpu.lab/node-id"]; targeted && target != syntheticNodeID(m.nodeName) {
+					allocationCount = 0
+				}
+			}
+		}
+		if i < allocationCount {
+			reading.Allocated = 1
 		}
 		readings = append(readings, reading)
 	}
@@ -154,6 +188,14 @@ func (m *Model) Metrics() string {
 	writeMetricHelp(&b, "gpu_lab_gpu_power_watts", "Synthetic GPU power draw in watts.", "gauge")
 	writeMetricHelp(&b, "gpu_lab_gpu_xid_code", "Synthetic current GPU XID code; zero means none.", "gauge")
 	writeMetricHelp(&b, "gpu_lab_gpu_health", "Synthetic GPU health, one for healthy and zero for unhealthy.", "gauge")
+	writeMetricHelp(&b, "gpu_lab_gpu_health_status", "Synthetic DCGM-style GPU health status: 0 PASS, 10 WARN, 20 FAIL.", "gauge")
+	writeMetricHelp(&b, "gpu_lab_gpu_ecc_dbe_total", "Synthetic cumulative uncorrectable double-bit ECC errors.", "counter")
+	writeMetricHelp(&b, "gpu_lab_gpu_power_violation_total", "Synthetic cumulative power-limit violation events.", "counter")
+	writeMetricHelp(&b, "gpu_lab_gpu_pcie_replay_total", "Synthetic cumulative PCIe replay events.", "counter")
+	writeMetricHelp(&b, "gpu_lab_gpu_throttle_active", "Synthetic GPU clock throttling state by reason.", "gauge")
+	writeMetricHelp(&b, "gpu_lab_gpu_allocated", "Synthetic GPU allocation state; one means reserved by a workload.", "gauge")
+	writeMetricHelp(&b, "gpu_lab_node_gpu_capacity", "Synthetic node GPU capacity.", "gauge")
+	writeMetricHelp(&b, "gpu_lab_node_gpu_allocatable", "Synthetic node GPU allocatable count.", "gauge")
 	writeMetricHelp(&b, "gpu_lab_exporter_up", "Synthetic dcgm-exporter projection availability.", "gauge")
 	writeMetricHelp(&b, "gpu_lab_scenario_info", "Active gpu-lab scenario.", "gauge")
 	writeMetricHelp(&b, "gpu_lab_scenario_generation", "Applied scenario generation.", "gauge")
@@ -166,11 +208,57 @@ func (m *Model) Metrics() string {
 		fmt.Fprintf(&b, "gpu_lab_gpu_power_watts{%s} %s\n", labels, floatString(reading.PowerWatts))
 		fmt.Fprintf(&b, "gpu_lab_gpu_xid_code{%s} %d\n", labels, reading.XIDCode)
 		fmt.Fprintf(&b, "gpu_lab_gpu_health{%s} %d\n", labels, reading.Health)
+		healthStatus := 0
+		if reading.Health == 0 {
+			healthStatus = 20
+		}
+		fmt.Fprintf(&b, "gpu_lab_gpu_health_status{%s} %d\n", labels, healthStatus)
+		fmt.Fprintf(&b, "gpu_lab_gpu_ecc_dbe_total{%s} %d\n", labels, reading.ECCDbeTotal)
+		fmt.Fprintf(&b, "gpu_lab_gpu_power_violation_total{%s} %d\n", labels, reading.PowerViolationTotal)
+		fmt.Fprintf(&b, "gpu_lab_gpu_pcie_replay_total{%s} %d\n", labels, reading.PCIeReplayTotal)
+		throttleReason := reading.ThrottleReason
+		if throttleReason == "" {
+			throttleReason = "none"
+		}
+		throttleLabels := fmt.Sprintf(`%s,reason="%s"`, labels, escapeLabel(throttleReason))
+		fmt.Fprintf(&b, "gpu_lab_gpu_throttle_active{%s} %d\n", throttleLabels, reading.ThrottleActive)
+		fmt.Fprintf(&b, "gpu_lab_gpu_allocated{%s} %d\n", labels, reading.Allocated)
 	}
+	capacity := scenarioDefaultGPUCount(m.scenario.Spec.Metrics.GPUCapacity, DefaultGPUCount)
+	allocatable := scenarioDefaultGPUCount(m.scenario.Spec.Metrics.GPUAllocatable, capacity)
+	nodeLabels := fmt.Sprintf(`node="%s"`, escapeLabel(m.nodeName))
+	fmt.Fprintf(&b, "gpu_lab_node_gpu_capacity{%s} %d\n", nodeLabels, capacity)
+	fmt.Fprintf(&b, "gpu_lab_node_gpu_allocatable{%s} %d\n", nodeLabels, allocatable)
 	fmt.Fprintf(&b, "gpu_lab_exporter_up{node=\"%s\"} 1\n", escapeLabel(m.nodeName))
 	fmt.Fprintf(&b, "gpu_lab_scenario_info{node=\"%s\",scenario=\"%s\"} 1\n", escapeLabel(m.nodeName), escapeLabel(m.scenario.Name()))
 	fmt.Fprintf(&b, "gpu_lab_scenario_generation{node=\"%s\"} %s\n", escapeLabel(m.nodeName), floatString(parseGeneration(m.generation)))
 	return b.String()
+}
+
+func scenarioDefaultGPUCount(value *int, fallback int) int {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func syntheticNodeID(nodeName string) string {
+	if strings.HasPrefix(nodeName, "gpu-node-") {
+		return nodeName
+	}
+	if nodeName == "gpu-lab-worker" {
+		return "gpu-node-01"
+	}
+	if strings.HasPrefix(nodeName, "gpu-lab-worker") {
+		suffix := strings.TrimPrefix(nodeName, "gpu-lab-worker")
+		if suffix == "2" {
+			return "gpu-node-02"
+		}
+		if suffix == "3" {
+			return "gpu-node-03"
+		}
+	}
+	return nodeName
 }
 
 func writeMetricHelp(b *strings.Builder, name, help, metricType string) {

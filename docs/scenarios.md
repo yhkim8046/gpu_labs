@@ -31,9 +31,14 @@ kubectl --context gpu-lab get pods -n gpu-lab-demo
 | `thermal-throttling` | 열과 성능 저하의 상관관계 | 96°C, utilization 하락 |
 | `xid-48` | ECC/DBE 장애 대응 | XID 48, unhealthy |
 | `xid-79` | bus-level 장애 대응 | XID 79, unhealthy |
+| `ecc-double-bit` | uncorrectable ECC 장애 대응 | ECC DBE counter, XID 48, unhealthy |
+| `power-throttle` | 전력 제한과 성능 저하 분석 | power violation, power-cap throttle |
+| `pcie-replay` | GPU-호스트 PCIe link 오류 분석 | PCIe replay counter 증가 |
 | `exporter-down` | 관측 장애와 GPU 장애 구분 | Prometheus target down |
 | `scheduling-failure` | 단일 node 용량 초과 | 9 GPU Pod Pending |
 | `gpu-idle` | GPU 예약 낭비 | 1 GPU allocated, utilization 2% |
+| `gpu-allocated-idle` | 할당과 실제 사용량 비교 | allocated 1, utilization 2% |
+| `gpu-capacity-mismatch` | telemetry와 scheduler resource 대조 | capacity 8, allocatable 4 |
 | `node-selector-mismatch` | GPU profile/label 불일치 | node affinity/selector failure |
 | `gpu-fragmentation` | cluster 총량과 node 단위 할당 차이 | 총 3 GPU 여유, 2 GPU Pod Pending |
 
@@ -65,7 +70,61 @@ kubectl --context gpu-lab get pod gpu-lab-idle-workload -n gpu-lab-demo -o wide
 kubectl --context gpu-lab describe pod gpu-lab-idle-workload -n gpu-lab-demo
 ```
 
-Pod가 GPU 1개를 정상 할당받았지만 Grafana utilization은 2%입니다. 장애가 아니라 비용·용량 효율 문제이며, request sizing, queue 정책, idle reclamation을 논의하기 위한 시나리오입니다.
+Pod가 `gpu-node-01`의 GPU 1개를 정상 할당받았지만 Grafana utilization은 2%입니다. 장애가 아니라 비용·용량 효율 문제이며, request sizing, queue 정책, idle reclamation을 논의하기 위한 시나리오입니다.
+
+## ecc-double-bit
+
+```bash
+gpu scenario run ecc-double-bit
+gpu metrics --query 'max(gpu_lab_gpu_ecc_dbe_total)'
+gpu metrics --query 'max(gpu_lab_gpu_health_status)'
+kubectl --context gpu-lab get prometheusrule gpu-lab-alerts -n gpu-lab-monitoring
+```
+
+ECC double-bit 오류는 수정 불가능한 메모리 오류로 취급합니다. ECC counter, XID 48, health status를 함께 확인하고 workload drain, GPU 격리, node 상태 확인 순서를 토론합니다. Lab은 실제 ECC를 발생시키지 않으며 counter와 health 신호만 합성합니다.
+
+## power-throttle
+
+```bash
+gpu scenario run power-throttle
+gpu metrics --query 'max(gpu_lab_gpu_power_violation_total)'
+gpu metrics --query 'max(gpu_lab_gpu_throttle_active{reason="power_cap"})'
+```
+
+사용률이 낮아졌는데 power violation과 throttle이 증가하는지 비교합니다. 실제 환경에서는 power limit, clock, temperature, workload profile을 함께 확인합니다.
+
+## pcie-replay
+
+```bash
+gpu scenario run pcie-replay
+gpu metrics --query 'max(gpu_lab_gpu_pcie_replay_total)'
+kubectl --context gpu-lab get pods -n gpu-lab-system -l app.kubernetes.io/name=dcgm-exporter -o wide
+```
+
+GPU가 healthy로 표시되어도 PCIe replay counter가 증가할 수 있습니다. 실제 환경에서는 PCIe link width/speed, host bridge, kernel log, hardware diagnostics를 추가로 확인합니다.
+
+## gpu-allocated-idle
+
+```bash
+gpu scenario run gpu-allocated-idle
+kubectl --context gpu-lab get pod gpu-lab-allocated-idle-workload -n gpu-lab-demo -o wide
+gpu metrics --query 'max(gpu_lab_gpu_allocated)'
+gpu metrics --query 'avg(gpu_lab_gpu_utilization_percent)'
+```
+
+Pod가 Running이고 GPU를 할당받았지만 utilization이 5% 미만인 상태입니다. 장애가 아니라 capacity 낭비 문제이며 request sizing, queue 정책, idle reclamation을 토론합니다. 기존 `gpu-idle` 명령은 호환성을 위해 유지됩니다.
+
+## gpu-capacity-mismatch
+
+```bash
+gpu scenario run gpu-capacity-mismatch
+kubectl --context gpu-lab get pod gpu-lab-capacity-mismatch-workload -n gpu-lab-demo -o wide
+gpu metrics --query 'max(gpu_lab_node_gpu_capacity)'
+gpu metrics --query 'max(gpu_lab_node_gpu_allocatable)'
+gpu metrics --query 'max(gpu_lab_node_gpu_capacity - gpu_lab_node_gpu_allocatable)'
+```
+
+이 시나리오는 실제 kubelet의 Node status를 변경하지 않습니다. Synthetic telemetry는 capacity 8, allocatable 4를 보고하고, 실제 scheduler는 4 GPU workload를 배치합니다. 수강생은 device-plugin registration, kubelet Node status, scheduler 결과를 서로 대조하는 연습을 합니다.
 
 ## node-selector-mismatch
 
