@@ -135,6 +135,13 @@ gpu-lab dashboard
 gpu-lab dashboard --port 3001
 ```
 
+GPU Lab는 교육용 disposable 환경이므로 Grafana 로그인은 다음 자격증명을 사용합니다.
+
+- Username: `admin`
+- Password: `admin`
+
+이 고정 자격증명은 강의 실습 편의를 위한 것이며 production 환경에서 사용하면 안 됩니다.
+
 Dashboard의 모든 metric은 `gpu_lab_` prefix를 사용하며, 실제 NVIDIA DCGM metric이 아니라 합성된 교육용 값입니다. 실제 field와의 대응은 [metric mapping](metric-mapping.md)을 참고합니다.
 
 각 장애의 관찰 명령, 원인 가설, 복구 절차는 [Scenario Runbook](scenarios.md)을 참고합니다.

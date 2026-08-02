@@ -18,6 +18,10 @@ nodeExporter:
 
 grafana:
   enabled: true
+  # Fixed credentials make the disposable course lab easy to access.
+  # Never reuse these values in a production Grafana deployment.
+  adminUser: admin
+  adminPassword: admin
   sidecar:
     dashboards:
       enabled: true
