@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -12,12 +13,18 @@ import (
 	"github.com/gpu-lab/gpu-lab/internal/kubeconfig"
 	"github.com/gpu-lab/gpu-lab/internal/runner"
 	"github.com/gpu-lab/gpu-lab/internal/scenario"
+	"github.com/gpu-lab/gpu-lab/internal/version"
 )
 
 const (
 	ClusterName         = "gpu-lab"
 	KubeContext         = kubeconfig.LabContext
-	ImageName           = "gpu-lab:dev"
+	LocalImageName      = "gpu-lab:dev"
+	ImageName           = LocalImageName
+	DefaultImageRepo    = "ghcr.io/gpu-lab/gpu-lab-runtime"
+	ImageSourceAuto     = "auto"
+	ImageSourceLocal    = "local"
+	ImageSourceRegistry = "registry"
 	MonitoringRelease   = "gpu-lab-monitoring"
 	MonitoringNS        = "gpu-lab-monitoring"
 	DefaultChartVersion = "87.21.0"
@@ -26,6 +33,7 @@ const (
 type Manager struct {
 	Runner       runner.Runner
 	Image        string
+	ImageSource  string
 	Chart        string
 	ChartVersion string
 	Workdir      string
@@ -37,9 +45,20 @@ func NewManager(r runner.Runner) Manager {
 	if chart == "" {
 		chart = "oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack"
 	}
+	imageSource := envOr("GPU_LAB_IMAGE_SOURCE", ImageSourceAuto)
+	image := os.Getenv("GPU_LAB_IMAGE")
+	if image == "" {
+		if imageSource == ImageSourceLocal || (imageSource == ImageSourceAuto && version.Version == "dev") {
+			image = LocalImageName
+		} else {
+			repository := envOr("GPU_LAB_RUNTIME_IMAGE_REPOSITORY", DefaultImageRepo)
+			image = fmt.Sprintf("%s:%s", strings.TrimRight(repository, "/"), strings.TrimPrefix(version.Version, "v"))
+		}
+	}
 	return Manager{
 		Runner:       r,
-		Image:        ImageName,
+		Image:        image,
+		ImageSource:  imageSource,
 		Chart:        chart,
 		ChartVersion: envOr("GPU_LAB_HELM_CHART_VERSION", DefaultChartVersion),
 		Workdir:      ".",
@@ -51,8 +70,18 @@ func (m Manager) Create(ctx context.Context) error {
 	if err := m.require("docker", "kind", "kubectl", "helm"); err != nil {
 		return err
 	}
-	if err := m.Runner.Run(ctx, "docker", "build", "-t", m.Image, m.Workdir); err != nil {
+	source, err := m.resolveImageSource()
+	if err != nil {
 		return err
+	}
+	if source == ImageSourceLocal {
+		if err := m.Runner.Run(ctx, "docker", "build", "-t", m.Image, m.Workdir); err != nil {
+			return err
+		}
+	} else {
+		if err := m.Runner.Run(ctx, "docker", "pull", m.Image); err != nil {
+			return fmt.Errorf("pull runtime image %s: %w", m.Image, err)
+		}
 	}
 	exists, err := m.Exists(ctx)
 	if err != nil {
@@ -191,7 +220,26 @@ func (m Manager) ApplyAsset(ctx context.Context, asset string) error {
 	if err != nil {
 		return err
 	}
+	data = renderAsset(data, m.Image)
 	return m.Runner.RunInput(ctx, data, "kubectl", "--context", KubeContext, "apply", "-f", "-")
+}
+
+func renderAsset(data []byte, image string) []byte {
+	return bytes.ReplaceAll(data, []byte(LocalImageName), []byte(image))
+}
+
+func (m Manager) resolveImageSource() (string, error) {
+	switch m.ImageSource {
+	case "", ImageSourceAuto:
+		if m.Image == LocalImageName && version.Version == "dev" {
+			return ImageSourceLocal, nil
+		}
+		return ImageSourceRegistry, nil
+	case ImageSourceLocal, ImageSourceRegistry:
+		return m.ImageSource, nil
+	default:
+		return "", fmt.Errorf("invalid GPU_LAB_IMAGE_SOURCE %q; expected auto, local, or registry", m.ImageSource)
+	}
 }
 
 func (m Manager) ApplyJSON(ctx context.Context, data []byte) error {

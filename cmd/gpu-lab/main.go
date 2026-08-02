@@ -290,6 +290,11 @@ Examples:
   gpu-lab create
   gpu-lab scenario run xid-79
   gpu-lab helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+
+Image environment:
+  GPU_LAB_IMAGE=<image>                         override runtime image
+  GPU_LAB_IMAGE_SOURCE=auto|local|registry      choose build or pull mode
+  GPU_LAB_RUNTIME_IMAGE_REPOSITORY=<repository> release image repository
 `)
 }
 

@@ -128,6 +128,18 @@ docker pull ghcr.io/<github-owner>/gpu-lab-runtime:1.0.0
 docker buildx imagetools inspect ghcr.io/<github-owner>/gpu-lab-runtime:1.0.0
 ```
 
-현재 `gpu-lab create`는 개발 환경의 local `gpu-lab:dev` image를 사용합니다. release image를 자동으로 pull하는 수강생 모드는 다음 배포 단계에서 연결합니다.
+Release binary로 `gpu-lab create`를 실행하면 CLI version과 같은 tag의 runtime image를 자동으로 pull한 뒤 kind node에 load합니다. `go run` 개발 모드는 기존처럼 local `gpu-lab:dev` image를 build합니다.
+
+기본 runtime repository는 `ghcr.io/gpu-lab/gpu-lab-runtime`입니다. 프로젝트를 다른 GitHub owner로 fork했다면 다음 환경 변수를 자신의 GHCR 경로로 바꿉니다.
+
+```bash
+GPU_LAB_RUNTIME_IMAGE_REPOSITORY=ghcr.io/<github-owner>/gpu-lab-runtime gpu-lab create
+```
+
+개발자가 release binary로 local image를 테스트하려면 다음처럼 지정합니다.
+
+```bash
+GPU_LAB_IMAGE_SOURCE=local GPU_LAB_IMAGE=gpu-lab:dev gpu-lab create
+```
 
 처음 publish한 뒤 GitHub의 `Packages`에서 `gpu-lab-runtime` package를 repository에 연결하고 visibility를 `Public`으로 설정해야 수강생이 로그인 없이 pull할 수 있습니다. GitHub Container Registry public package는 anonymous pull을 지원합니다.

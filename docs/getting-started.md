@@ -37,7 +37,7 @@ go run ./cmd/gpu-lab create
 
 `create`는 다음 순서로 동작합니다.
 
-1. `gpu-lab:dev` image를 빌드한다.
+1. release binary라면 CLI version에 맞는 GHCR runtime image를 pull하고, 소스 실행 모드라면 `gpu-lab:dev` image를 빌드한다.
 2. control-plane 1개와 fake GPU worker 3개로 kind cluster를 만든다.
 3. synthetic `nvidia-device-plugin`과 `dcgm-exporter`를 설치한다.
 4. 각 worker에 `nvidia.com/gpu: 8`이 등록될 때까지 기다린다.
@@ -59,6 +59,16 @@ gpu-lab context use 7fa96a70-f1d6-11f0-b997-246e96591a38@mlx-kpb4r/p-example
 
 ```bash
 GPU_LAB_HELM_CHART_VERSION=87.21.0 go run ./cmd/gpu-lab create
+```
+
+이미지 동작을 직접 선택할 수도 있습니다.
+
+```bash
+# release image 사용
+GPU_LAB_IMAGE_SOURCE=registry GPU_LAB_IMAGE=ghcr.io/<github-owner>/gpu-lab-runtime:1.0.0 gpu-lab create
+
+# local image build 사용
+GPU_LAB_IMAGE_SOURCE=local GPU_LAB_IMAGE=gpu-lab:dev go run ./cmd/gpu-lab create
 ```
 
 ## 공식 Helm CLI 사용

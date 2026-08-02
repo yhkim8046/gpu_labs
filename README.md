@@ -81,7 +81,7 @@ Git tag `v1.0.0`을 push하면 GitHub Actions가 GHCR에 다음 multi-arch runti
 ghcr.io/<github-owner>/gpu-lab-runtime:1.0.0
 ```
 
-현재 `gpu-lab create`는 개발 재현성을 위해 계속 local `gpu-lab:dev` image를 사용합니다. Release image를 수강생 workflow에 연결하는 작업은 다음 배포 단계에서 진행합니다.
+Release binary는 CLI version에 맞는 GHCR image를 자동으로 사용합니다. 소스에서 `go run`을 실행하거나 `GPU_LAB_IMAGE_SOURCE=local`을 지정하면 local `gpu-lab:dev` image를 build합니다.
 
 ## 소스에서 실행하는 명령
 
