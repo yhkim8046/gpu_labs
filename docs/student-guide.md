@@ -14,10 +14,10 @@ Linux, macOS, Windows + WSL2에서 사용할 수 있습니다.
 - Helm
 
 ```bash
-gpu doctor
+gpu-lab doctor
 ```
 
-gpu 명령이 없다면 강의에서 안내한 GitHub Release binary를 설치합니다. 소스에서는 다음처럼 실행할 수 있습니다.
+gpu-lab 명령이 없다면 강의에서 안내한 GitHub Release binary를 설치합니다. 소스에서는 다음처럼 실행할 수 있습니다.
 
 ```bash
 go run ./cmd/gpu-lab doctor
@@ -25,11 +25,11 @@ go run ./cmd/gpu-lab doctor
 
 ## 2. 클러스터 생성
 
-gpu create는 kind 클러스터와 runtime image만 준비합니다. GPU 구성요소는 수강생이 Helm으로 직접 설치합니다.
+gpu-lab create는 kind 클러스터와 runtime image만 준비합니다. GPU 구성요소는 수강생이 Helm으로 직접 설치합니다.
 
 ```bash
-gpu create
-gpu context list
+gpu-lab create
+gpu-lab context list
 kubectl --context gpu-lab get nodes -o wide
 ```
 
@@ -45,11 +45,11 @@ gpu-lab-worker3      # gpu-node-03
 ## 3. GPU Infrastructure 설치
 
 ```bash
-gpu helm catalog
-gpu helm install nvidia-device-plugin
-gpu helm install dcgm-exporter
-gpu helm install monitoring
-gpu helm list --all-namespaces
+gpu-lab helm catalog
+gpu-lab helm install nvidia-device-plugin
+gpu-lab helm install dcgm-exporter
+gpu-lab helm install monitoring
+gpu-lab helm list --all-namespaces
 ```
 
 설치 결과는 다음 명령으로 확인합니다.
@@ -59,12 +59,12 @@ kubectl --context gpu-lab get pods -A
 kubectl --context gpu-lab get nodes -o wide
 ```
 
-gpu helm은 Helm을 대체하는 별도 패키지 관리자가 아닙니다. GPU Lab component는 고정된 교육용 chart를 사용하고, 일반 Helm 명령은 공식 Helm으로 전달합니다.
+gpu-lab helm은 Helm을 대체하는 별도 패키지 관리자가 아닙니다. GPU Lab component는 고정된 교육용 chart를 사용하고, 일반 Helm 명령은 공식 Helm으로 전달합니다.
 
 ```bash
-gpu helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-gpu helm repo update
-gpu helm search repo prometheus-community
+gpu-lab helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+gpu-lab helm repo update
+gpu-lab helm search repo prometheus-community
 ```
 
 ## 4. Grafana와 Prometheus 접속
@@ -72,7 +72,7 @@ gpu helm search repo prometheus-community
 Grafana:
 
 ```bash
-gpu dashboard
+gpu-lab dashboard
 ```
 
 브라우저에서 http://127.0.0.1:3000을 열고 다음으로 로그인합니다.
@@ -82,7 +82,7 @@ Username: admin
 Password: admin
 ```
 
-포트를 변경하려면 gpu dashboard --port 3001을 사용합니다.
+포트를 변경하려면 gpu-lab dashboard --port 3001을 사용합니다.
 
 Prometheus:
 
@@ -96,21 +96,21 @@ kubectl --context gpu-lab -n gpu-lab-monitoring \
 CLI에서 PromQL을 직접 실행할 수도 있습니다.
 
 ```bash
-gpu metrics
-gpu metrics --query 'max(gpu_lab_gpu_temperature_celsius)'
-gpu metrics --query 'max(gpu_lab_gpu_ecc_dbe_total)'
-gpu metrics --query 'max(gpu_lab_node_gpu_capacity - gpu_lab_node_gpu_allocatable)'
+gpu-lab metrics
+gpu-lab metrics --query 'max(gpu_lab_gpu_temperature_celsius)'
+gpu-lab metrics --query 'max(gpu_lab_gpu_ecc_dbe_total)'
+gpu-lab metrics --query 'max(gpu_lab_node_gpu_capacity - gpu_lab_node_gpu_allocatable)'
 ```
 
 ## 5. 공통 실습 흐름
 
 ```bash
-gpu scenario list
-gpu scenario inspect <scenario>
-gpu scenario run <scenario>
-gpu status
-gpu metrics
-gpu verify <scenario>
+gpu-lab scenario list
+gpu-lab scenario inspect <scenario>
+gpu-lab scenario run <scenario>
+gpu-lab status
+gpu-lab metrics
+gpu-lab verify <scenario>
 ```
 
 Kubernetes 상태와 이벤트를 함께 확인합니다.
@@ -124,7 +124,7 @@ kubectl --context gpu-lab get nodes -o wide
 실습이 끝나면 다음 명령으로 scenario와 실습 workload를 초기화합니다.
 
 ```bash
-gpu scenario reset
+gpu-lab scenario reset
 ```
 
 ## 6. 제공되는 시나리오
@@ -153,10 +153,10 @@ gpu scenario reset
 ### ECC Double-bit
 
 ```bash
-gpu scenario run ecc-double-bit
-gpu verify ecc-double-bit
-gpu metrics --query 'max(gpu_lab_gpu_ecc_dbe_total)'
-gpu metrics --query 'max(gpu_lab_gpu_health_status)'
+gpu-lab scenario run ecc-double-bit
+gpu-lab verify ecc-double-bit
+gpu-lab metrics --query 'max(gpu_lab_gpu_ecc_dbe_total)'
+gpu-lab metrics --query 'max(gpu_lab_gpu_health_status)'
 ```
 
 ECC DBE counter, XID 48, GPU health를 함께 확인합니다. 실제 환경에서는 workload drain, GPU 격리, node 상태 확인으로 이어집니다.
@@ -164,10 +164,10 @@ ECC DBE counter, XID 48, GPU health를 함께 확인합니다. 실제 환경에�
 ### Power Throttle
 
 ```bash
-gpu scenario run power-throttle
-gpu verify power-throttle
-gpu metrics --query 'max(gpu_lab_gpu_power_violation_total)'
-gpu metrics --query 'max(gpu_lab_gpu_throttle_active{reason="power_cap"})'
+gpu-lab scenario run power-throttle
+gpu-lab verify power-throttle
+gpu-lab metrics --query 'max(gpu_lab_gpu_power_violation_total)'
+gpu-lab metrics --query 'max(gpu_lab_gpu_throttle_active{reason="power_cap"})'
 ```
 
 Grafana에서 utilization, temperature, power, throttle을 함께 비교해 전력 제한으로 인한 성능 저하를 분석합니다.
@@ -175,9 +175,9 @@ Grafana에서 utilization, temperature, power, throttle을 함께 비교해 전�
 ### PCIe Replay
 
 ```bash
-gpu scenario run pcie-replay
-gpu verify pcie-replay
-gpu metrics --query 'max(gpu_lab_gpu_pcie_replay_total)'
+gpu-lab scenario run pcie-replay
+gpu-lab verify pcie-replay
+gpu-lab metrics --query 'max(gpu_lab_gpu_pcie_replay_total)'
 ```
 
 GPU health가 정상이어도 PCIe replay가 증가할 수 있습니다. 실제 GPU 환경에서는 PCIe link speed/width, host bridge, kernel log를 추가로 확인합니다.
@@ -185,10 +185,10 @@ GPU health가 정상이어도 PCIe replay가 증가할 수 있습니다. 실제 
 ### GPU Allocated but Idle
 
 ```bash
-gpu scenario run gpu-allocated-idle
-gpu verify gpu-allocated-idle
-gpu metrics --query 'max(gpu_lab_gpu_allocated)'
-gpu metrics --query 'avg(gpu_lab_gpu_utilization_percent)'
+gpu-lab scenario run gpu-allocated-idle
+gpu-lab verify gpu-allocated-idle
+gpu-lab metrics --query 'max(gpu_lab_gpu_allocated)'
+gpu-lab metrics --query 'avg(gpu_lab_gpu_utilization_percent)'
 kubectl --context gpu-lab get pod gpu-lab-allocated-idle-workload -n gpu-lab-demo -o wide
 ```
 
@@ -197,10 +197,10 @@ GPU를 할당받은 workload가 실행 중이지만 utilization이 2%입니다. 
 ### GPU Capacity Mismatch
 
 ```bash
-gpu scenario run gpu-capacity-mismatch
-gpu verify gpu-capacity-mismatch
-gpu metrics --query 'max(gpu_lab_node_gpu_capacity)'
-gpu metrics --query 'max(gpu_lab_node_gpu_allocatable)'
+gpu-lab scenario run gpu-capacity-mismatch
+gpu-lab verify gpu-capacity-mismatch
+gpu-lab metrics --query 'max(gpu_lab_node_gpu_capacity)'
+gpu-lab metrics --query 'max(gpu_lab_node_gpu_allocatable)'
 kubectl --context gpu-lab get pod gpu-lab-capacity-mismatch-workload -n gpu-lab-demo -o wide
 ```
 
@@ -221,14 +221,14 @@ Exporter 장애:
 ```bash
 kubectl --context gpu-lab get pods -n gpu-lab-system -l app.kubernetes.io/name=dcgm-exporter
 kubectl --context gpu-lab get servicemonitor -n gpu-lab-monitoring
-gpu metrics --query 'sum(up{service="dcgm-exporter"})'
+gpu-lab metrics --query 'sum(up{service="dcgm-exporter"})'
 ```
 
 현재 scenario 확인:
 
 ```bash
 kubectl --context gpu-lab get configmap gpu-lab-scenario -n gpu-lab-system -o yaml
-gpu scenario inspect <scenario>
+gpu-lab scenario inspect <scenario>
 ```
 
 ## 9. 종료
@@ -236,13 +236,13 @@ gpu scenario inspect <scenario>
 시나리오만 초기화:
 
 ```bash
-gpu scenario reset
+gpu-lab scenario reset
 ```
 
 클러스터 전체 삭제:
 
 ```bash
-gpu destroy
+gpu-lab destroy
 ```
 
 ## 10. 반드시 기억할 한계
@@ -250,7 +250,7 @@ gpu destroy
 - 실제 NVIDIA GPU와 CUDA kernel을 사용하지 않습니다.
 - XID, ECC, PCIe replay는 synthetic metric입니다.
 - gpu_lab_* metric은 실제 DCGM metric과 의미가 완전히 같지 않습니다.
-- gpu scenario reset은 실제 GPU reset, node drain, reboot를 수행하지 않습니다.
+- gpu-lab scenario reset은 실제 GPU reset, node drain, reboot를 수행하지 않습니다.
 - 실제 환경에서는 nvidia-smi, dcgmi, kernel log, GPU Operator 상태를 함께 확인해야 합니다.
 
 이 프로젝트의 목표는 실제 GPU 장애를 발생시키는 것이 아니라, GPU Infrastructure 장애를 관찰하고 조사하는 운영 절차를 반복 연습하는 것입니다.
