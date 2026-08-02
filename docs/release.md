@@ -112,3 +112,22 @@ make release-snapshot
 ```
 
 결과물은 `dist/`에 생성되며 `checksums.txt`에는 SHA-256 checksum이 포함됩니다.
+
+## Container runtime image
+
+`v1.0.0` tag를 push하면 `.github/workflows/publish-image.yml`이 GHCR에 다음 이미지를 생성합니다.
+
+```text
+ghcr.io/<github-owner>/gpu-lab-runtime:1.0.0
+```
+
+이미지는 `linux/amd64`와 `linux/arm64` manifest를 함께 제공하며, tag에는 `latest`를 사용하지 않습니다. 강의에서는 CLI release version과 같은 image tag를 고정해야 합니다.
+
+```bash
+docker pull ghcr.io/<github-owner>/gpu-lab-runtime:1.0.0
+docker buildx imagetools inspect ghcr.io/<github-owner>/gpu-lab-runtime:1.0.0
+```
+
+현재 `gpu-lab create`는 개발 환경의 local `gpu-lab:dev` image를 사용합니다. release image를 자동으로 pull하는 수강생 모드는 다음 배포 단계에서 연결합니다.
+
+처음 publish한 뒤 GitHub의 `Packages`에서 `gpu-lab-runtime` package를 repository에 연결하고 visibility를 `Public`으로 설정해야 수강생이 로그인 없이 pull할 수 있습니다. GitHub Container Registry public package는 anonymous pull을 지원합니다.
