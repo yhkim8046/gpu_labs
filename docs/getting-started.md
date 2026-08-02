@@ -8,7 +8,16 @@ gpu-lab은 로컬 Docker runtime 위에 kind cluster를 만들고, 공식 `kubec
 - kind
 - kubectl
 - Helm 3+
-- Go 1.26+ (소스에서 CLI를 실행할 때)
+- Go 1.26+ (소스에서 CLI를 실행할 때만 필요)
+
+수강생은 [Release Binary](release.md)에서 자신의 OS와 architecture에 맞는 `gpu-lab`을 설치한 뒤 다음처럼 실행할 수 있습니다.
+
+```bash
+gpu-lab version
+gpu-lab doctor
+```
+
+이 문서의 `go run ./cmd/gpu-lab ...` 예시는 저장소를 clone해 소스에서 실행하는 개발자용 경로입니다. release binary를 설치했다면 `go run ./cmd/gpu-lab` 부분을 `gpu-lab`으로 바꿉니다.
 
 먼저 설치 상태를 확인합니다.
 
@@ -127,12 +136,6 @@ gpu-lab destroy
 
 ```bash
 make e2e
-```
-
-현재 클러스터를 보존하며 로컬 smoke만 실행하려면 다음과 같이 지정합니다.
-
-```bash
-E2E_KEEP_CLUSTER=1 make e2e
 ```
 
 현재 클러스터를 보존하며 로컬 smoke만 실행하려면 다음과 같이 지정합니다.

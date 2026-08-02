@@ -15,6 +15,7 @@ import (
 	"github.com/gpu-lab/gpu-lab/internal/runner"
 	"github.com/gpu-lab/gpu-lab/internal/scenario"
 	"github.com/gpu-lab/gpu-lab/internal/verification"
+	"github.com/gpu-lab/gpu-lab/internal/version"
 )
 
 func main() {
@@ -27,6 +28,13 @@ func main() {
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		printHelp(stdout)
+		return nil
+	}
+	if args[0] == "version" || args[0] == "--version" || args[0] == "-v" {
+		if len(args) != 1 {
+			return errors.New("usage: gpu-lab version")
+		}
+		fmt.Fprintln(stdout, version.String())
 		return nil
 	}
 	r := runner.New(stdout, stderr)
@@ -263,6 +271,7 @@ func printHelp(w io.Writer) {
 	_, _ = io.WriteString(w, `gpu-lab — Kubernetes GPU infrastructure lab
 
 Usage:
+  gpu-lab version
   gpu-lab create
   gpu-lab destroy
   gpu-lab reset

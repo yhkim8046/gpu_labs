@@ -43,3 +43,13 @@ func TestHelmPassthrough(t *testing.T) {
 		t.Fatalf("args = %v, want %v", got, want)
 	}
 }
+
+func TestVersionCommand(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := run(context.Background(), []string{"version"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(stdout.String()); !strings.HasPrefix(got, "gpu-lab ") {
+		t.Fatalf("version output = %q, want gpu-lab prefix", got)
+	}
+}

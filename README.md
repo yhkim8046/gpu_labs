@@ -40,6 +40,7 @@ gpu-lab helm install gpu-lab-monitoring prometheus-community/kube-prometheus-sta
 
 - [Architecture Proposal](docs/architecture.md)
 - [Getting Started](docs/getting-started.md)
+- [Release & Installation](docs/release.md)
 - [Scenario Runbook](docs/scenarios.md)
 - [Course Readiness & Roadmap](docs/course-readiness.md)
 
@@ -64,7 +65,17 @@ gpu-lab helm install gpu-lab-monitoring prometheus-community/kube-prometheus-sta
 
 각 단계는 검증 가능한 상태로 끝내며, 이전 단계의 동작을 깨뜨리지 않는 것을 원칙으로 합니다.
 
-## 현재 구현된 명령
+## Release binary 설치
+
+강의 수강생은 Go toolchain 없이 [Release & Installation](docs/release.md)의 release binary를 설치할 수 있습니다. 설치 후에는 `go run ./cmd/gpu-lab` 대신 `gpu-lab`을 사용합니다.
+
+```bash
+gpu-lab version
+gpu-lab doctor
+gpu-lab create
+```
+
+## 소스에서 실행하는 명령
 
 ```bash
 go run ./cmd/gpu-lab doctor
@@ -103,4 +114,4 @@ make e2e
 
 ## License
 
-라이선스는 첫 공개 push 전에 확정합니다. 현재 Phase 1에서는 라이선스 파일을 임의로 추가하지 않았습니다.
+이 프로젝트는 [MIT License](LICENSE)로 배포됩니다.
