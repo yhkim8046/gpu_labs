@@ -343,6 +343,7 @@ CLI binary 이름은 `gpu-lab`이며 Go로 구현합니다. 외부 command 실�
 | `gpu-lab scenario list` | 내장 YAML scenario 목록 표시 |
 | `gpu-lab scenario run <name>` | scenario 검증·적용·상태 확인 |
 | `gpu-lab scenario reset` | `normal` 복구 |
+| `gpu-lab verify <name>` | active ConfigMap, Prometheus metric, Pod phase/event 검증 |
 | `gpu-lab helm <official-helm-args...>` | 로컬 공식 Helm CLI를 그대로 실행 |
 
 ### Official CLI passthrough

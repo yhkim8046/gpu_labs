@@ -14,7 +14,7 @@ gpu-lab은 GPU나 CUDA를 흉내 내는 프로젝트가 아닙니다. Kubernetes
 - DCGM Exporter의 관측 모델을 따르는 synthetic `dcgm-exporter`
 - Prometheus와 Grafana 기반 GPU monitoring
 - YAML 기반 GPU incident scenario
-- scheduling failure, exporter down, XID-79, VRAM pressure troubleshooting
+- scheduling failure, exporter down, thermal, ECC/XID, idle GPU, selector mismatch, fragmentation troubleshooting
 
 실제 GPU 장치, NVIDIA driver, CUDA kernel 실행은 범위에 포함하지 않습니다.
 
@@ -70,6 +70,7 @@ gpu-lab helm install gpu-lab-monitoring prometheus-community/kube-prometheus-sta
 go run ./cmd/gpu-lab doctor
 go run ./cmd/gpu-lab scenario list
 go run ./cmd/gpu-lab scenario run xid-79
+go run ./cmd/gpu-lab verify xid-79
 go run ./cmd/gpu-lab scenario reset
 go run ./cmd/gpu-lab helm repo list
 go run ./cmd/gpu-lab context list
@@ -81,6 +82,7 @@ go run ./cmd/gpu-lab context use gpu-lab
 ```bash
 go run ./cmd/gpu-lab create
 go run ./cmd/gpu-lab status
+go run ./cmd/gpu-lab verify normal
 go run ./cmd/gpu-lab destroy
 ```
 

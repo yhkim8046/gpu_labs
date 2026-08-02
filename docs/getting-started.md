@@ -79,6 +79,7 @@ gpu-lab scenario run xid-48
 gpu-lab scenario run gpu-idle
 gpu-lab scenario run node-selector-mismatch
 gpu-lab scenario run gpu-fragmentation
+gpu-lab verify gpu-fragmentation
 gpu-lab scenario reset
 ```
 
@@ -107,6 +108,13 @@ kubectl --context gpu-lab -n gpu-lab-monitoring port-forward svc/gpu-lab-monitor
 Dashboard의 모든 metric은 `gpu_lab_` prefix를 사용하며, 실제 NVIDIA DCGM metric이 아니라 합성된 교육용 값입니다.
 
 각 장애의 관찰 명령, 원인 가설, 복구 절차는 [Scenario Runbook](scenarios.md)을 참고합니다.
+
+Scenario를 실행한 뒤에는 검증 명령으로 ConfigMap, Prometheus metric, workload phase와 scheduler event를 한 번에 확인할 수 있습니다.
+
+```bash
+gpu-lab verify gpu-fragmentation
+gpu-lab verify xid-48
+```
 
 ## 정리
 

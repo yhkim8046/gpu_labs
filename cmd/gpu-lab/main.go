@@ -14,6 +14,7 @@ import (
 	"github.com/gpu-lab/gpu-lab/internal/cluster"
 	"github.com/gpu-lab/gpu-lab/internal/runner"
 	"github.com/gpu-lab/gpu-lab/internal/scenario"
+	"github.com/gpu-lab/gpu-lab/internal/verification"
 )
 
 func main() {
@@ -50,6 +51,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return doctor(ctx, r, stdout)
 	case "status":
 		return m.Status(ctx)
+	case "verify":
+		return verifyScenario(ctx, r, args[1:], stdout)
 	case "context":
 		return contextCommand(ctx, m, args[1:], stdout)
 	case "reset":
@@ -59,6 +62,34 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	default:
 		return fmt.Errorf("unknown command %q; run gpu-lab help", args[0])
 	}
+}
+
+func verifyScenario(ctx context.Context, r runner.Runner, args []string, stdout io.Writer) error {
+	if len(args) != 1 {
+		return errors.New("usage: gpu-lab verify <scenario>")
+	}
+	selected, err := scenario.LoadBuiltin(args[0])
+	if err != nil {
+		return err
+	}
+	verifyCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	report := verification.New(r).Verify(verifyCtx, selected)
+	failures := 0
+	fmt.Fprintf(stdout, "gpu-lab verify %s\n", report.Scenario)
+	for _, check := range report.Checks {
+		status := "PASS"
+		if !check.Passed {
+			status = "FAIL"
+			failures++
+		}
+		fmt.Fprintf(stdout, "[%s] %-24s %s\n", status, check.Name, check.Detail)
+	}
+	if failures > 0 {
+		return fmt.Errorf("scenario verification failed: %d check(s) failed", failures)
+	}
+	fmt.Fprintln(stdout, "scenario verification passed")
+	return nil
 }
 
 func scenarioCommand(ctx context.Context, m cluster.Manager, args []string, stdout io.Writer) error {
@@ -237,6 +268,7 @@ Usage:
   gpu-lab reset
   gpu-lab doctor
   gpu-lab status
+  gpu-lab verify <scenario>
   gpu-lab context list
   gpu-lab context setup
   gpu-lab context use <context-name>
