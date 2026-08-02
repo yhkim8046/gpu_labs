@@ -305,6 +305,13 @@ var defaultMetricQueries = []metricQuery{
 	{Name: "GPU power (W)", Query: "max(gpu_lab_gpu_power_watts)"},
 	{Name: "GPU XID", Query: "max(gpu_lab_gpu_xid_code)"},
 	{Name: "GPU health", Query: "min(gpu_lab_gpu_health)"},
+	{Name: "GPU health status", Query: "max(gpu_lab_gpu_health_status)"},
+	{Name: "Double-bit ECC errors", Query: "max(gpu_lab_gpu_ecc_dbe_total)"},
+	{Name: "Power violations", Query: "max(gpu_lab_gpu_power_violation_total)"},
+	{Name: "PCIe replay errors", Query: "max(gpu_lab_gpu_pcie_replay_total)"},
+	{Name: "Allocated GPUs", Query: "sum(gpu_lab_gpu_allocated)"},
+	{Name: "GPU capacity", Query: "max(gpu_lab_node_gpu_capacity)"},
+	{Name: "GPU allocatable", Query: "max(gpu_lab_node_gpu_allocatable)"},
 	{Name: "Exporter targets", Query: `sum(up{service="dcgm-exporter"})`},
 }
 
@@ -507,6 +514,38 @@ func printMetricOverrides(stdout io.Writer, metrics scenario.MetricOverrides) {
 	}
 	if metrics.Health != nil {
 		fmt.Fprintf(stdout, "  health=%d\n", *metrics.Health)
+		count++
+	}
+	if metrics.ECCDbeTotal != nil {
+		fmt.Fprintf(stdout, "  ecc_dbe_total=%d\n", *metrics.ECCDbeTotal)
+		count++
+	}
+	if metrics.PowerViolationTotal != nil {
+		fmt.Fprintf(stdout, "  power_violation_total=%d\n", *metrics.PowerViolationTotal)
+		count++
+	}
+	if metrics.PCIeReplayTotal != nil {
+		fmt.Fprintf(stdout, "  pcie_replay_total=%d\n", *metrics.PCIeReplayTotal)
+		count++
+	}
+	if metrics.ThrottleActive != nil {
+		fmt.Fprintf(stdout, "  throttle_active=%d\n", *metrics.ThrottleActive)
+		count++
+	}
+	if metrics.ThrottleReason != "" {
+		fmt.Fprintf(stdout, "  throttle_reason=%s\n", metrics.ThrottleReason)
+		count++
+	}
+	if metrics.GPUAllocatedCount != nil {
+		fmt.Fprintf(stdout, "  gpu_allocated_count=%d\n", *metrics.GPUAllocatedCount)
+		count++
+	}
+	if metrics.GPUCapacity != nil {
+		fmt.Fprintf(stdout, "  gpu_capacity=%d\n", *metrics.GPUCapacity)
+		count++
+	}
+	if metrics.GPUAllocatable != nil {
+		fmt.Fprintf(stdout, "  gpu_allocatable=%d\n", *metrics.GPUAllocatable)
 		count++
 	}
 	if count == 0 {

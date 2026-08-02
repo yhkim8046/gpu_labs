@@ -10,13 +10,16 @@ func TestBuiltinScenarios(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"exporter-down", "gpu-fragmentation", "gpu-idle", "gpu-util-high", "node-selector-mismatch", "normal", "scheduling-failure", "thermal-throttling", "vram-pressure", "xid-48", "xid-79"}
+	want := []string{"ecc-double-bit", "exporter-down", "gpu-allocated-idle", "gpu-capacity-mismatch", "gpu-fragmentation", "gpu-idle", "gpu-util-high", "node-selector-mismatch", "normal", "pcie-replay", "power-throttle", "scheduling-failure", "thermal-throttling", "vram-pressure", "xid-48", "xid-79"}
 	if len(names) != len(want) {
 		t.Fatalf("got %v, want %v", names, want)
 	}
 	for i := range want {
 		if names[i] != want[i] {
 			t.Fatalf("names[%d] = %q, want %q", i, names[i], want[i])
+		}
+		if _, err := LoadBuiltin(names[i]); err != nil {
+			t.Fatalf("scenario %q failed to parse: %v", names[i], err)
 		}
 	}
 }
@@ -101,5 +104,28 @@ func TestGPUWorkloadJSON(t *testing.T) {
 	selector := spec["nodeSelector"].(map[string]any)
 	if selector["gpu.lab/node-id"] != "gpu-node-99" {
 		t.Fatalf("node selector = %v", selector)
+	}
+}
+
+func TestIncidentScenarioContracts(t *testing.T) {
+	cases := map[string]func(MetricOverrides) bool{
+		"ecc-double-bit": func(m MetricOverrides) bool { return m.ECCDbeTotal != nil && *m.ECCDbeTotal > 0 },
+		"power-throttle": func(m MetricOverrides) bool {
+			return m.ThrottleActive != nil && *m.ThrottleActive == 1 && m.PowerViolationTotal != nil
+		},
+		"pcie-replay":        func(m MetricOverrides) bool { return m.PCIeReplayTotal != nil && *m.PCIeReplayTotal > 0 },
+		"gpu-allocated-idle": func(m MetricOverrides) bool { return m.GPUAllocatedCount != nil && *m.GPUAllocatedCount > 0 },
+		"gpu-capacity-mismatch": func(m MetricOverrides) bool {
+			return m.GPUCapacity != nil && m.GPUAllocatable != nil && *m.GPUCapacity != *m.GPUAllocatable
+		},
+	}
+	for name, valid := range cases {
+		selected, err := LoadBuiltin(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !valid(selected.Spec.Metrics) {
+			t.Fatalf("scenario %q does not contain its expected metric contract", name)
+		}
 	}
 }

@@ -1,9 +1,9 @@
 apiVersion: gpu-lab.io/v1alpha1
 kind: Scenario
 metadata:
-  name: gpu-idle
+  name: gpu-allocated-idle
 spec:
-  description: A workload reserves a GPU but produces almost no utilization
+  description: A workload reserves a GPU but produces almost no GPU activity
   metrics:
     gpu_utilization_percent: 2
     gpu_memory_used_percent: 5
@@ -12,7 +12,7 @@ spec:
     gpu_allocated_count: 1
   actions:
     - type: create_gpu_workload
-      name: gpu-lab-idle-workload
+      name: gpu-lab-allocated-idle-workload
       gpu_count: 1
       node_selector:
         gpu.lab/node-id: gpu-node-01

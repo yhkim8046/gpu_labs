@@ -1,0 +1,15 @@
+apiVersion: gpu-lab.io/v1alpha1
+kind: Scenario
+metadata:
+  name: ecc-double-bit
+spec:
+  description: An uncorrectable double-bit ECC error removes GPUs from healthy service
+  metrics:
+    gpu_utilization_percent: 88
+    gpu_memory_used_percent: 82
+    temperature_celsius: 76
+    power_watts: 210
+    xid_code: 48
+    health: 0
+    ecc_dbe_total: 1
+  actions: []

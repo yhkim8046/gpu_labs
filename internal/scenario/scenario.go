@@ -57,6 +57,14 @@ type MetricOverrides struct {
 	PowerWatts            *float64 `yaml:"power_watts,omitempty" json:"power_watts,omitempty"`
 	XIDCode               *int     `yaml:"xid_code,omitempty" json:"xid_code,omitempty"`
 	Health                *int     `yaml:"health,omitempty" json:"health,omitempty"`
+	ECCDbeTotal           *int64   `yaml:"ecc_dbe_total,omitempty" json:"ecc_dbe_total,omitempty"`
+	PowerViolationTotal   *int64   `yaml:"power_violation_total,omitempty" json:"power_violation_total,omitempty"`
+	PCIeReplayTotal       *int64   `yaml:"pcie_replay_total,omitempty" json:"pcie_replay_total,omitempty"`
+	ThrottleActive        *int     `yaml:"throttle_active,omitempty" json:"throttle_active,omitempty"`
+	ThrottleReason        string   `yaml:"throttle_reason,omitempty" json:"throttle_reason,omitempty"`
+	GPUAllocatedCount     *int     `yaml:"gpu_allocated_count,omitempty" json:"gpu_allocated_count,omitempty"`
+	GPUCapacity           *int     `yaml:"gpu_capacity,omitempty" json:"gpu_capacity,omitempty"`
+	GPUAllocatable        *int     `yaml:"gpu_allocatable,omitempty" json:"gpu_allocatable,omitempty"`
 }
 
 type ScenarioAction struct {
@@ -108,6 +116,27 @@ func (s Scenario) Validate() error {
 	}
 	if m.Health != nil && *m.Health != 0 && *m.Health != 1 {
 		return errors.New("metrics.health must be 0 or 1")
+	}
+	if m.ECCDbeTotal != nil && *m.ECCDbeTotal < 0 {
+		return errors.New("metrics.ecc_dbe_total cannot be negative")
+	}
+	if m.PowerViolationTotal != nil && *m.PowerViolationTotal < 0 {
+		return errors.New("metrics.power_violation_total cannot be negative")
+	}
+	if m.PCIeReplayTotal != nil && *m.PCIeReplayTotal < 0 {
+		return errors.New("metrics.pcie_replay_total cannot be negative")
+	}
+	if m.ThrottleActive != nil && *m.ThrottleActive != 0 && *m.ThrottleActive != 1 {
+		return errors.New("metrics.throttle_active must be 0 or 1")
+	}
+	if m.GPUAllocatedCount != nil && *m.GPUAllocatedCount < 0 {
+		return errors.New("metrics.gpu_allocated_count cannot be negative")
+	}
+	if m.GPUCapacity != nil && *m.GPUCapacity <= 0 {
+		return errors.New("metrics.gpu_capacity must be positive")
+	}
+	if m.GPUAllocatable != nil && *m.GPUAllocatable < 0 {
+		return errors.New("metrics.gpu_allocatable cannot be negative")
 	}
 	for i, action := range s.Spec.Actions {
 		switch action.Type {

@@ -51,6 +51,46 @@ spec:
           annotations:
             summary: "Synthetic GPU unhealthy on {{ $labels.node }}"
             description: "The synthetic dcgm-exporter reports an unhealthy virtual GPU."
+        - alert: GPULabDoubleBitECC
+          expr: gpu_lab_gpu_ecc_dbe_total > 0
+          for: 30s
+          labels:
+            severity: critical
+          annotations:
+            summary: "Uncorrectable ECC error on {{ $labels.node }}"
+            description: "Double-bit ECC errors are present; drain the workload and isolate the GPU."
+        - alert: GPULabPowerThrottle
+          expr: gpu_lab_gpu_throttle_active{reason="power_cap"} == 1 or increase(gpu_lab_gpu_power_violation_total[5m]) > 0
+          for: 30s
+          labels:
+            severity: warning
+          annotations:
+            summary: "GPU is power throttling on {{ $labels.node }}"
+            description: "Power-limit violations or an active power-cap throttle require clock, power, and workload investigation."
+        - alert: GPULabPCIeReplay
+          expr: increase(gpu_lab_gpu_pcie_replay_total[5m]) > 0
+          for: 30s
+          labels:
+            severity: warning
+          annotations:
+            summary: "PCIe replay errors on {{ $labels.node }}"
+            description: "PCIe replay counters increased; inspect link state, host bridge, cable, and hardware errors."
+        - alert: GPULabAllocatedGPUIdle
+          expr: (gpu_lab_gpu_allocated == 1) and (gpu_lab_gpu_utilization_percent < 5)
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Allocated GPU is idle on {{ $labels.node }}"
+            description: "A workload reserves a GPU while utilization remains below 5 percent."
+        - alert: GPULabGPUCapacityMismatch
+          expr: gpu_lab_node_gpu_capacity != gpu_lab_node_gpu_allocatable
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "GPU capacity and allocatable counts differ on {{ $labels.node }}"
+            description: "Reconcile device-plugin registration, kubelet Node status, and scheduler capacity."
         - alert: GPULabExporterDown
           expr: up{service="dcgm-exporter"} == 0
           for: 1m

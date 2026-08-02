@@ -16,6 +16,11 @@ scenario_names=(
   gpu-idle
   node-selector-mismatch
   gpu-fragmentation
+  ecc-double-bit
+  power-throttle
+  pcie-replay
+  gpu-allocated-idle
+  gpu-capacity-mismatch
 )
 
 keep_cluster="${E2E_KEEP_CLUSTER:-0}"

@@ -1,0 +1,13 @@
+apiVersion: gpu-lab.io/v1alpha1
+kind: Scenario
+metadata:
+  name: pcie-replay
+spec:
+  description: PCIe replay errors increase while the GPU remains otherwise healthy
+  metrics:
+    gpu_utilization_percent: 72
+    gpu_memory_used_percent: 61
+    temperature_celsius: 66
+    power_watts: 190
+    pcie_replay_total: 250
+  actions: []

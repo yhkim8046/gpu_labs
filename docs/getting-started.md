@@ -124,6 +124,11 @@ gpu scenario run scheduling-failure
 gpu scenario run thermal-throttling
 gpu scenario run xid-48
 gpu scenario run gpu-idle
+gpu scenario run ecc-double-bit
+gpu scenario run power-throttle
+gpu scenario run pcie-replay
+gpu scenario run gpu-allocated-idle
+gpu scenario run gpu-capacity-mismatch
 gpu scenario run node-selector-mismatch
 gpu scenario run gpu-fragmentation
 gpu verify gpu-fragmentation
@@ -142,6 +147,10 @@ gpu scenario run my-scenario --file ./my-scenario.yaml
 gpu status
 gpu metrics
 gpu metrics --query 'max(gpu_lab_gpu_xid_code)'
+gpu metrics --query 'max(gpu_lab_gpu_ecc_dbe_total)'
+gpu metrics --query 'max(gpu_lab_gpu_power_violation_total)'
+gpu metrics --query 'max(gpu_lab_gpu_pcie_replay_total)'
+gpu metrics --query 'max(gpu_lab_node_gpu_capacity - gpu_lab_node_gpu_allocatable)'
 kubectl --context gpu-lab get nodes
 kubectl --context gpu-lab get pods -A
 kubectl --context gpu-lab describe pod -n gpu-lab-demo gpu-lab-scheduling-failure

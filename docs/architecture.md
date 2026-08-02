@@ -213,6 +213,14 @@ resources:
 | `gpu_lab_gpu_power_watts` | Gauge | `node`, `gpu` | 가상 소비 전력 |
 | `gpu_lab_gpu_xid_code` | Gauge | `node`, `gpu` | 현재 가상 XID code, 없으면 0 |
 | `gpu_lab_gpu_health` | Gauge | `node`, `gpu` | 정상 1, 비정상 0 |
+| `gpu_lab_gpu_health_status` | Gauge | `node`, `gpu` | DCGM 스타일 상태: 0 PASS, 10 WARN, 20 FAIL |
+| `gpu_lab_gpu_ecc_dbe_total` | Counter | `node`, `gpu` | 가상 uncorrectable double-bit ECC 누적 수 |
+| `gpu_lab_gpu_power_violation_total` | Counter | `node`, `gpu` | 가상 power-limit violation 누적 수 |
+| `gpu_lab_gpu_pcie_replay_total` | Counter | `node`, `gpu` | 가상 PCIe replay 누적 수 |
+| `gpu_lab_gpu_throttle_active` | Gauge | `node`, `gpu`, `reason` | 가상 clock throttling 상태 |
+| `gpu_lab_gpu_allocated` | Gauge | `node`, `gpu` | 가상 workload 할당 상태 |
+| `gpu_lab_node_gpu_capacity` | Gauge | `node` | 가상 Node GPU capacity |
+| `gpu_lab_node_gpu_allocatable` | Gauge | `node` | 가상 Node GPU allocatable |
 | `gpu_lab_exporter_up` | Gauge | `node` | exporter projection 정상 여부 |
 | `gpu_lab_scenario_info` | Gauge | `node`, `scenario` | 활성 scenario를 나타내는 1 |
 | `gpu_lab_scenario_generation` | Gauge | `node` | 적용된 scenario generation |
@@ -269,6 +277,11 @@ MVP scenario 파일은 `scenarios/`에 두고, `metadata.name`과 filename을 �
 | `thermal-throttling` | 고온과 처리량 저하 | 온도·전력·사용률 조합 override |
 | `xid-48` | double-bit ECC 장애 신호 | XID 48, health 0 override |
 | `gpu-idle` | GPU를 예약했지만 사용률이 거의 없음 | 1 GPU workload와 저사용률 metric |
+| `ecc-double-bit` | uncorrectable double-bit ECC 신호 | ECC counter, XID 48, health 0 override |
+| `power-throttle` | power limit으로 인한 clock throttling | power violation과 throttle reason override |
+| `pcie-replay` | PCIe link replay 증가 | PCIe replay counter override |
+| `gpu-allocated-idle` | GPU가 할당됐지만 거의 사용되지 않음 | allocation metric과 Running workload |
+| `gpu-capacity-mismatch` | telemetry capacity와 allocatable 불일치 | synthetic Node resource metric과 workload |
 | `node-selector-mismatch` | 존재하지 않는 GPU profile을 요구해 Pending | nodeSelector 불일치 workload |
 | `gpu-fragmentation` | 전체 여유 GPU는 있지만 2 GPU Pod가 Pending | node별 7 GPU 선점 후 2 GPU 요청 |
 

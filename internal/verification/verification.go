@@ -122,10 +122,41 @@ func (v Verifier) Verify(ctx context.Context, selected scenario.Scenario) Report
 			v.queryCheck(ctx, "XID 79", "max(gpu_lab_gpu_xid_code)", func(value float64) bool { return value == 79 }, "XID 79 is reported"),
 			v.queryCheck(ctx, "GPU health", "min(gpu_lab_gpu_health)", func(value float64) bool { return value == 0 }, "at least one GPU reports unhealthy"),
 		)
+	case "ecc-double-bit":
+		report.Checks = append(report.Checks,
+			v.queryCheck(ctx, "double-bit ECC", "max(gpu_lab_gpu_ecc_dbe_total)", func(value float64) bool { return value > 0 }, "uncorrectable ECC counter is non-zero"),
+			v.queryCheck(ctx, "XID 48", "max(gpu_lab_gpu_xid_code)", func(value float64) bool { return value == 48 }, "XID 48 is reported"),
+			v.queryCheck(ctx, "GPU health", "min(gpu_lab_gpu_health)", func(value float64) bool { return value == 0 }, "at least one GPU reports unhealthy"),
+		)
+	case "power-throttle":
+		report.Checks = append(report.Checks,
+			v.queryCheck(ctx, "power violation", "max(gpu_lab_gpu_power_violation_total)", func(value float64) bool { return value > 0 }, "power violation counter is non-zero"),
+			v.queryCheck(ctx, "power throttle", `max(gpu_lab_gpu_throttle_active{reason="power_cap"})`, func(value float64) bool { return value == 1 }, "power-cap throttle is active"),
+			v.queryCheck(ctx, "throttled utilization", "avg(gpu_lab_gpu_utilization_percent)", func(value float64) bool { return value < 80 }, "utilization is below the high-utilization threshold"),
+		)
+	case "pcie-replay":
+		report.Checks = append(report.Checks,
+			v.queryCheck(ctx, "PCIe replay", "max(gpu_lab_gpu_pcie_replay_total)", func(value float64) bool { return value > 0 }, "PCIe replay counter is non-zero"),
+			v.queryCheck(ctx, "GPU health", "min(gpu_lab_gpu_health)", func(value float64) bool { return value == 1 }, "GPU health remains healthy while the link signal is investigated"),
+		)
 	case "gpu-idle":
 		report.Checks = append(report.Checks,
 			v.podPhaseCheck(ctx, "gpu-lab-idle-workload", "Running"),
+			v.queryCheck(ctx, "GPU allocation", "max(gpu_lab_gpu_allocated)", func(value float64) bool { return value == 1 }, "at least one GPU is allocated"),
 			v.queryCheck(ctx, "idle utilization", "avg(gpu_lab_gpu_utilization_percent)", func(value float64) bool { return value <= 5 }, "average utilization is 5% or lower"),
+		)
+	case "gpu-allocated-idle":
+		report.Checks = append(report.Checks,
+			v.podPhaseCheck(ctx, "gpu-lab-allocated-idle-workload", "Running"),
+			v.queryCheck(ctx, "GPU allocation", "max(gpu_lab_gpu_allocated)", func(value float64) bool { return value == 1 }, "at least one GPU is allocated"),
+			v.queryCheck(ctx, "idle utilization", "avg(gpu_lab_gpu_utilization_percent)", func(value float64) bool { return value <= 5 }, "average utilization is 5% or lower"),
+		)
+	case "gpu-capacity-mismatch":
+		report.Checks = append(report.Checks,
+			v.podPhaseCheck(ctx, "gpu-lab-capacity-mismatch-workload", "Running"),
+			v.queryCheck(ctx, "GPU capacity", "max(gpu_lab_node_gpu_capacity)", func(value float64) bool { return value == 8 }, "synthetic GPU capacity is 8"),
+			v.queryCheck(ctx, "GPU allocatable", "max(gpu_lab_node_gpu_allocatable)", func(value float64) bool { return value == 4 }, "synthetic GPU allocatable is 4"),
+			v.queryCheck(ctx, "capacity mismatch", "max(gpu_lab_node_gpu_capacity - gpu_lab_node_gpu_allocatable)", func(value float64) bool { return value == 4 }, "capacity and allocatable differ by 4 GPUs"),
 		)
 	case "scheduling-failure":
 		report.Checks = append(report.Checks,
