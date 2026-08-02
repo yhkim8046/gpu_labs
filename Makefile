@@ -1,7 +1,7 @@
 .PHONY: build test fmt docker-build
 
 build:
-	go build ./cmd/gpu-lab ./cmd/fake-gpu-device-plugin ./cmd/mock-gpu-exporter
+	go build ./cmd/gpu-lab ./cmd/fake-gpu-device-plugin ./cmd/dcgm-exporter
 
 test:
 	go test ./...

@@ -11,7 +11,7 @@ gpu-lab은 GPU나 CUDA를 흉내 내는 프로젝트가 아닙니다. Kubernetes
 - kind 기반 multi-node Kubernetes cluster
 - `nvidia.com/gpu` Extended Resource와 GPU scheduling
 - NVIDIA Device Plugin의 등록·할당 모델을 본뜬 Fake Device Plugin
-- DCGM Exporter의 관측 모델을 본뜬 Mock GPU Exporter
+- DCGM Exporter의 관측 모델을 따르는 synthetic `dcgm-exporter`
 - Prometheus와 Grafana 기반 GPU monitoring
 - YAML 기반 GPU incident scenario
 - scheduling failure, exporter down, XID-79, VRAM pressure troubleshooting
@@ -45,17 +45,17 @@ gpu-lab helm install gpu-lab-monitoring prometheus-community/kube-prometheus-sta
 
 - component diagram과 runtime topology
 - Fake GPU와 Extended Resource 설계
-- Mock Exporter 및 metric contract
+- `dcgm-exporter` 및 metric contract
 - YAML Scenario Engine과 reset semantics
 - CLI와 repository 구조
 - integration acceptance criteria
-- 기술적 리스크와 Mock 환경의 한계
+- 기술적 리스크와 synthetic 환경의 한계
 
 ## 구현 순서
 
 1. Architecture Proposal
 2. kind infrastructure, Fake GPU, Prometheus, Grafana
-3. Go Mock Exporter
+3. Go `dcgm-exporter`
 4. YAML Scenario Engine
 5. `gpu-lab` CLI
 6. Integration Test
@@ -87,7 +87,7 @@ go run ./cmd/gpu-lab destroy
 - 기본 브랜치는 항상 재현 가능한 상태를 유지합니다.
 - 기능은 문서, 테스트, 구현 순서로 쪼개어 공개합니다.
 - 실제 NVIDIA 환경에서 동작한다고 오해할 수 있는 표현을 피합니다.
-- Mock metric과 DCGM metric의 차이를 문서화합니다.
+- synthetic metric과 실제 DCGM metric의 차이를 문서화합니다.
 - 공개 전 라이선스와 contribution policy를 확정합니다.
 
 ## License

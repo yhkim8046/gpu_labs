@@ -74,6 +74,9 @@ func (m Manager) Create(ctx context.Context) error {
 	if _, err := m.Kubeconfig.Setup(ctx, ClusterName); err != nil {
 		return fmt.Errorf("setup gpu-lab kubeconfig: %w", err)
 	}
+	if err := m.RemoveLegacyExporter(ctx); err != nil {
+		return err
+	}
 	for _, asset := range []string{"device-plugin/device-plugin.yaml", "exporter/exporter.yaml", "demo/namespace.yaml"} {
 		if err := m.ApplyAsset(ctx, asset); err != nil {
 			return fmt.Errorf("apply %s: %w", asset, err)
@@ -96,7 +99,7 @@ func (m Manager) Create(ctx context.Context) error {
 	if err := m.Runner.Run(ctx, "kubectl", "--context", KubeContext, "rollout", "status", "daemonset/fake-gpu-device-plugin", "-n", "gpu-lab-system", "--timeout=5m"); err != nil {
 		return err
 	}
-	if err := m.Runner.Run(ctx, "kubectl", "--context", KubeContext, "rollout", "status", "daemonset/mock-gpu-exporter", "-n", "gpu-lab-system", "--timeout=5m"); err != nil {
+	if err := m.Runner.Run(ctx, "kubectl", "--context", KubeContext, "rollout", "status", "daemonset/dcgm-exporter", "-n", "gpu-lab-system", "--timeout=5m"); err != nil {
 		return err
 	}
 	valuesPath, cleanup, err := m.tempAsset("monitoring/values.yaml")
@@ -115,6 +118,25 @@ func (m Manager) Create(ctx context.Context) error {
 		if err := m.ApplyAsset(ctx, asset); err != nil {
 			return fmt.Errorf("apply %s: %w", asset, err)
 		}
+	}
+	return nil
+}
+
+func (m Manager) RemoveLegacyExporter(ctx context.Context) error {
+	legacyResources := []string{
+		"daemonset/mock-gpu-exporter",
+		"service/mock-gpu-exporter",
+		"serviceaccount/mock-gpu-exporter",
+		"role/mock-gpu-exporter",
+		"rolebinding/mock-gpu-exporter",
+	}
+	args := append([]string{"--context", KubeContext, "delete"}, legacyResources...)
+	args = append(args, "-n", "gpu-lab-system", "--ignore-not-found=true")
+	if err := m.Runner.Run(ctx, "kubectl", args...); err != nil {
+		return fmt.Errorf("remove legacy mock exporter resources: %w", err)
+	}
+	if err := m.Runner.Run(ctx, "kubectl", "--context", KubeContext, "delete", "servicemonitor/mock-gpu-exporter", "-n", MonitoringNS, "--ignore-not-found=true"); err != nil {
+		return fmt.Errorf("remove legacy mock exporter ServiceMonitor: %w", err)
 	}
 	return nil
 }

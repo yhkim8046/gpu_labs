@@ -154,7 +154,7 @@ func (m *Model) Metrics() string {
 	writeMetricHelp(&b, "gpu_lab_gpu_power_watts", "Synthetic GPU power draw in watts.", "gauge")
 	writeMetricHelp(&b, "gpu_lab_gpu_xid_code", "Synthetic current GPU XID code; zero means none.", "gauge")
 	writeMetricHelp(&b, "gpu_lab_gpu_health", "Synthetic GPU health, one for healthy and zero for unhealthy.", "gauge")
-	writeMetricHelp(&b, "gpu_lab_exporter_up", "Mock exporter projection availability.", "gauge")
+	writeMetricHelp(&b, "gpu_lab_exporter_up", "Synthetic dcgm-exporter projection availability.", "gauge")
 	writeMetricHelp(&b, "gpu_lab_scenario_info", "Active gpu-lab scenario.", "gauge")
 	writeMetricHelp(&b, "gpu_lab_scenario_generation", "Applied scenario generation.", "gauge")
 	for _, reading := range m.readings {

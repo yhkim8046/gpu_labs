@@ -45,15 +45,15 @@ Device Plugin API와 kind container 내부의 kubelet socket 연결은 MVP의 �
 MVP에는 실제 GPU Operator controller나 CRD를 만들지 않습니다. 대신 `gpu-lab create`가 다음 구성요소를 선언된 순서로 설치합니다.
 
 1. Fake Device Plugin
-2. Mock GPU Exporter
+2. `dcgm-exporter` synthetic telemetry layer
 3. Prometheus
 4. Grafana와 dashboard provisioning
 
 이 설치·reconcile 흐름을 교육에서 “GPU Operator가 여러 GPU 구성요소를 묶어 설치·운영하는 방식”의 축약 모델로 설명합니다. 실제 GPU Operator CRD/controller 실습은 MVP 이후 확장 범위로 명시합니다.
 
-### 2.3 Mock Exporter는 node-local DaemonSet이다
+### 2.3 `dcgm-exporter`는 node-local DaemonSet이다
 
-Mock Exporter는 Go로 작성하며 worker마다 하나의 Pod를 둡니다. Pod의 `NODE_NAME` 환경 변수로 자신의 node identity를 알고, 해당 node의 8개 가상 GPU metric을 생성합니다.
+`dcgm-exporter`는 Go로 작성하며 worker마다 하나의 Pod를 둡니다. Pod의 `NODE_NAME` 환경 변수로 자신의 node identity를 알고, 해당 node의 8개 가상 GPU metric을 생성합니다. 이름과 운영 흐름은 DCGM Exporter에 맞추지만 metric 값은 synthetic입니다.
 
 Exporter는 Kubernetes API를 통해 `gpu-lab-system/gpu-lab-scenario` ConfigMap을 읽고 watch합니다. Scenario를 실행할 때 CLI가 ConfigMap을 갱신하면 모든 exporter가 새 generation을 받아 metric projection을 갱신합니다.
 
@@ -83,7 +83,7 @@ flowchart LR
     KubeAPI[Kubernetes API Server]
     Scheduler[Kubernetes Scheduler]
     Plugin[Fake Device Plugin\nDaemonSet]
-    Exporter[Mock GPU Exporter\nDaemonSet]
+    Exporter[dcgm-exporter\nsynthetic DaemonSet]
     Prom[Prometheus]
     Grafana[Grafana]
     Scenario[(Scenario YAML\n+ConfigMap)]
@@ -114,13 +114,13 @@ Docker
     │   └── kube-scheduler
     ├── gpu-node-01
     │   ├── Fake Device Plugin
-    │   └── Mock GPU Exporter
+    │   └── dcgm-exporter
     ├── gpu-node-02
     │   ├── Fake Device Plugin
-    │   └── Mock GPU Exporter
+    │   └── dcgm-exporter
     ├── gpu-node-03
     │   ├── Fake Device Plugin
-    │   └── Mock GPU Exporter
+    │   └── dcgm-exporter
     └── monitoring namespace
         ├── Prometheus
         └── Grafana
@@ -187,7 +187,7 @@ resources:
 
 Fake Device Plugin은 host의 `/dev`, GPU driver, Docker socket을 필요로 하지 않습니다. 필요한 hostPath는 kubelet device-plugin socket 디렉터리로 제한합니다. 이 경계를 깨는 privileged mount는 MVP에서 허용하지 않습니다.
 
-## 5. Mock GPU Exporter 설계
+## 5. `dcgm-exporter` 설계
 
 ### 5.1 HTTP contract
 
@@ -306,7 +306,7 @@ MVP는 `kube-prometheus-stack` Helm chart를 고정된 values와 함께 설치�
 
 ### Prometheus
 
-- Mock Exporter Service를 scrape한다.
+- `dcgm-exporter` Service를 scrape한다.
 - `gpu-lab-monitoring` namespace의 ServiceMonitor가 `gpu-lab-system` namespace의 exporter Service를 `namespaceSelector`로 가리키게 한다.
 - Prometheus values에서 ServiceMonitor selector와 namespace selector를 명시해 chart의 기본 release-label 필터에 의존하지 않는다.
 - `gpu_lab_` metric 기반의 기본 alert rule을 provision한다.
@@ -395,7 +395,7 @@ gpu-lab/
 ├── cmd/
 │   ├── gpu-lab/                    # user-facing CLI
 │   ├── fake-gpu-device-plugin/     # kubelet device plugin
-│   └── mock-gpu-exporter/          # Prometheus exporter
+│   └── dcgm-exporter/          # Prometheus exporter
 ├── internal/
 │   ├── cli/
 │   ├── cluster/
@@ -421,7 +421,7 @@ gpu-lab/
 ├── docs/
 │   ├── architecture.md
 │   ├── troubleshooting.md
-│   └── mock-vs-real.md
+│   └── synthetic-vs-real.md
 └── .github/
     └── workflows/
 ```
@@ -504,7 +504,7 @@ CI는 Linux Docker runner에서 full e2e를 수행하고, macOS와 WSL2는 relea
 
 가장 먼저 구현할 것은 Device Plugin의 registration과 `nvidia.com/gpu` capacity 노출입니다. 이것이 실패하면 이후 monitoring은 GPU infrastructure 학습이라는 목표를 충분히 충족하지 못합니다.
 
-## 12. Mock 환경과 실제 환경의 차이
+## 12. Synthetic 환경과 실제 환경의 차이
 
 | gpu-lab | 실제 GPU cluster |
 |---|---|

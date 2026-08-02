@@ -22,7 +22,7 @@ func main() {
 	defer stop()
 	go exporter.WatchConfigMap(ctx, model, namespace)
 
-	log.Printf("mock-gpu-exporter node=%s gpu_count=%d listen=%s", nodeName, gpuCount, addr)
+	log.Printf("dcgm-exporter node=%s gpu_count=%d listen=%s", nodeName, gpuCount, addr)
 	if err := exporter.NewServer(model, addr).ListenAndServe(ctx); err != nil {
 		log.Fatal(err)
 	}

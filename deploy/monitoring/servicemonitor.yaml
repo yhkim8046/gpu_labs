@@ -1,10 +1,10 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: mock-gpu-exporter
+  name: dcgm-exporter
   namespace: gpu-lab-monitoring
   labels:
-    app.kubernetes.io/name: mock-gpu-exporter
+    app.kubernetes.io/name: dcgm-exporter
     app.kubernetes.io/part-of: gpu-lab
     app.kubernetes.io/managed-by: gpu-lab
 spec:
@@ -13,7 +13,7 @@ spec:
       - gpu-lab-system
   selector:
     matchLabels:
-      app.kubernetes.io/name: mock-gpu-exporter
+      app.kubernetes.io/name: dcgm-exporter
   endpoints:
     - port: http
       path: /metrics

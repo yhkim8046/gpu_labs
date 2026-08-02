@@ -30,7 +30,7 @@ go run ./cmd/gpu-lab create
 
 1. `gpu-lab:dev` image를 빌드한다.
 2. control-plane 1개와 fake GPU worker 3개로 kind cluster를 만든다.
-3. Fake Device Plugin과 Mock Exporter를 설치한다.
+3. Fake Device Plugin과 `dcgm-exporter`를 설치한다.
 4. 각 worker에 `nvidia.com/gpu: 8`이 등록될 때까지 기다린다.
 5. 공식 Helm CLI로 `kube-prometheus-stack`을 설치한다.
 6. ServiceMonitor, PrometheusRule, Grafana dashboard를 provision한다.

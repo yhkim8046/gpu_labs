@@ -42,15 +42,15 @@ spec:
             severity: critical
           annotations:
             summary: "Synthetic GPU unhealthy on {{ $labels.node }}"
-            description: "The mock exporter reports an unhealthy virtual GPU."
+            description: "The synthetic dcgm-exporter reports an unhealthy virtual GPU."
         - alert: GPULabExporterDown
-          expr: up{service="mock-gpu-exporter"} == 0
+          expr: up{service="dcgm-exporter"} == 0
           for: 1m
           labels:
             severity: critical
           annotations:
             summary: "GPU exporter is down on {{ $labels.instance }}"
-            description: "Prometheus cannot scrape the mock GPU exporter."
+            description: "Prometheus cannot scrape the synthetic dcgm-exporter."
         - alert: GPULabSchedulingFailure
           expr: kube_pod_status_phase{namespace="gpu-lab-demo", pod="gpu-lab-scheduling-failure", phase="Pending"} == 1
           for: 30s
