@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -107,7 +108,7 @@ func (m Manager) Create(ctx context.Context) error {
 			return err
 		}
 	}
-	if err := m.Runner.Run(ctx, "kind", "load", "docker-image", m.Image, "--name", ClusterName); err != nil {
+	if err := m.loadImage(ctx, source); err != nil {
 		return err
 	}
 	if _, err := m.Kubeconfig.Setup(ctx, ClusterName); err != nil {
@@ -165,6 +166,49 @@ func (m Manager) Create(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+// loadImage uses a platform-specific archive for registry images. Docker
+// Desktop can keep a multi-platform OCI index locally, while kind's
+// docker-image loader may try to import attestations for platforms that are
+// not present in the local content store. Saving one platform avoids that
+// containerd import failure on Apple Silicon and other non-amd64 hosts.
+func (m Manager) loadImage(ctx context.Context, source string) error {
+	if source != ImageSourceRegistry {
+		return m.Runner.Run(ctx, "kind", "load", "docker-image", m.Image, "--name", ClusterName)
+	}
+
+	platform, err := hostImagePlatform()
+	if err != nil {
+		return err
+	}
+	archive, err := os.CreateTemp("", "gpu-lab-runtime-*.tar")
+	if err != nil {
+		return fmt.Errorf("create runtime image archive: %w", err)
+	}
+	archivePath := archive.Name()
+	if err := archive.Close(); err != nil {
+		_ = os.Remove(archivePath)
+		return fmt.Errorf("close runtime image archive: %w", err)
+	}
+	defer os.Remove(archivePath)
+
+	if err := m.Runner.Run(ctx, "docker", "image", "save", "--platform", platform, "--output", archivePath, m.Image); err != nil {
+		return fmt.Errorf("save runtime image for %s: %w", platform, err)
+	}
+	if err := m.Runner.Run(ctx, "kind", "load", "image-archive", archivePath, "--name", ClusterName); err != nil {
+		return fmt.Errorf("load runtime image archive for %s: %w", platform, err)
+	}
+	return nil
+}
+
+func hostImagePlatform() (string, error) {
+	switch runtime.GOARCH {
+	case "amd64", "arm64":
+		return "linux/" + runtime.GOARCH, nil
+	default:
+		return "", fmt.Errorf("unsupported host architecture %q; expected amd64 or arm64", runtime.GOARCH)
+	}
 }
 
 // waitForMonitoring keeps create deterministic on fresh clusters. Helm waits
