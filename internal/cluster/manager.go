@@ -3,6 +3,7 @@ package cluster
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,23 +15,23 @@ import (
 	"github.com/gpu-lab/gpu-lab/internal/kubeconfig"
 	"github.com/gpu-lab/gpu-lab/internal/monitoring"
 	"github.com/gpu-lab/gpu-lab/internal/runner"
-	"github.com/gpu-lab/gpu-lab/internal/scenario"
 	"github.com/gpu-lab/gpu-lab/internal/version"
 )
 
 const (
-	ClusterName         = "gpu-lab"
-	KubeContext         = kubeconfig.LabContext
-	LocalImageName      = "gpu-lab:dev"
-	ImageName           = LocalImageName
-	DefaultImageRepo    = "ghcr.io/yhkim8046/gpu-lab-runtime"
-	ImageSourceAuto     = "auto"
-	ImageSourceLocal    = "local"
-	ImageSourceRegistry = "registry"
-	MonitoringRelease   = "gpu-lab-monitoring"
-	MonitoringNS        = "gpu-lab-monitoring"
-	GrafanaService      = "gpu-lab-monitoring-grafana"
-	DefaultChartVersion = "87.21.0"
+	ClusterName               = "gpu-lab"
+	KubeContext               = kubeconfig.LabContext
+	LocalImageName            = "gpu-lab:dev"
+	ImageName                 = LocalImageName
+	DefaultImageRepo          = "ghcr.io/yhkim8046/gpu-lab-runtime"
+	DefaultComponentChartRepo = "oci://ghcr.io/yhkim8046/gpu-lab-charts"
+	ImageSourceAuto           = "auto"
+	ImageSourceLocal          = "local"
+	ImageSourceRegistry       = "registry"
+	MonitoringRelease         = "gpu-lab-monitoring"
+	MonitoringNS              = "gpu-lab-monitoring"
+	GrafanaService            = "gpu-lab-monitoring-grafana"
+	DefaultChartVersion       = "87.21.0"
 )
 
 type Manager struct {
@@ -39,6 +40,8 @@ type Manager struct {
 	ImageSource  string
 	Chart        string
 	ChartVersion string
+	LabChartRepo string
+	LabChartMode string
 	Workdir      string
 	Kubeconfig   kubeconfig.Manager
 }
@@ -63,6 +66,8 @@ func NewManager(r runner.Runner) Manager {
 		ImageSource:  imageSource,
 		Chart:        chart,
 		ChartVersion: envOr("GPU_LAB_HELM_CHART_VERSION", DefaultChartVersion),
+		LabChartRepo: strings.TrimRight(envOr("GPU_LAB_COMPONENT_CHART_REPOSITORY", DefaultComponentChartRepo), "/"),
+		LabChartMode: envOr("GPU_LAB_COMPONENT_CHART_SOURCE", ImageSourceAuto),
 		Workdir:      ".",
 		Kubeconfig:   kubeconfig.New(r),
 	}
@@ -78,7 +83,7 @@ func RuntimeImageForVersion() string {
 }
 
 func (m Manager) Create(ctx context.Context) error {
-	if err := m.require("docker", "kind", "kubectl", "helm"); err != nil {
+	if err := m.require("docker", "kind", "kubectl"); err != nil {
 		return err
 	}
 	source, err := m.resolveImageSource()
@@ -114,55 +119,10 @@ func (m Manager) Create(ctx context.Context) error {
 	if _, err := m.Kubeconfig.Setup(ctx, ClusterName); err != nil {
 		return fmt.Errorf("setup gpu-lab kubeconfig: %w", err)
 	}
-	if err := m.RemoveLegacyComponents(ctx); err != nil {
+	if err := m.saveClusterConfig(ctx); err != nil {
 		return err
-	}
-	for _, asset := range []string{"device-plugin/device-plugin.yaml", "exporter/exporter.yaml", "demo/namespace.yaml"} {
-		if err := m.ApplyAsset(ctx, asset); err != nil {
-			return fmt.Errorf("apply %s: %w", asset, err)
-		}
-	}
-	normal, err := scenario.LoadBuiltin("normal")
-	if err != nil {
-		return err
-	}
-	normalData, err := scenario.ConfigMapJSON(normal, "0")
-	if err != nil {
-		return err
-	}
-	if err := m.ApplyJSON(ctx, normalData); err != nil {
-		return fmt.Errorf("seed normal scenario: %w", err)
 	}
 	if err := m.Runner.Run(ctx, "kubectl", "--context", KubeContext, "wait", "--for=condition=Ready", "nodes", "--all", "--timeout=5m"); err != nil {
-		return err
-	}
-	if err := m.Runner.Run(ctx, "kubectl", "--context", KubeContext, "rollout", "restart", "daemonset/nvidia-device-plugin", "daemonset/dcgm-exporter", "-n", "gpu-lab-system"); err != nil {
-		return err
-	}
-	if err := m.Runner.Run(ctx, "kubectl", "--context", KubeContext, "rollout", "status", "daemonset/nvidia-device-plugin", "-n", "gpu-lab-system", "--timeout=5m"); err != nil {
-		return err
-	}
-	if err := m.Runner.Run(ctx, "kubectl", "--context", KubeContext, "rollout", "status", "daemonset/dcgm-exporter", "-n", "gpu-lab-system", "--timeout=5m"); err != nil {
-		return err
-	}
-	valuesPath, cleanup, err := m.tempAsset("monitoring/values.yaml")
-	if err != nil {
-		return err
-	}
-	defer cleanup()
-	helmArgs := []string{"--kube-context", KubeContext, "upgrade", "--install", MonitoringRelease, m.Chart, "--namespace", MonitoringNS, "--create-namespace", "--values", valuesPath, "--wait", "--timeout", "10m"}
-	if m.ChartVersion != "" {
-		helmArgs = append(helmArgs, "--version", m.ChartVersion)
-	}
-	if err := m.Runner.Run(ctx, "helm", helmArgs...); err != nil {
-		return err
-	}
-	for _, asset := range []string{"monitoring/servicemonitor.yaml", "monitoring/alerts.yaml", "monitoring/dashboard-configmap.yaml"} {
-		if err := m.ApplyAsset(ctx, asset); err != nil {
-			return fmt.Errorf("apply %s: %w", asset, err)
-		}
-	}
-	if err := m.waitForMonitoring(ctx); err != nil {
 		return err
 	}
 	return nil
@@ -211,12 +171,19 @@ func hostImagePlatform() (string, error) {
 	}
 }
 
-// waitForMonitoring keeps create deterministic on fresh clusters. Helm waits
-// for the operator release, but the Prometheus CR, its StatefulSet, and the
-// first ServiceMonitor scrape are reconciled asynchronously afterwards.
+// waitForMonitoring keeps the monitoring component install deterministic.
+// Helm waits for the operator release, but the Prometheus CR, its StatefulSet,
+// and the first ServiceMonitor scrape are reconciled asynchronously afterwards.
 func (m Manager) waitForMonitoring(ctx context.Context) error {
 	if err := m.Runner.Run(ctx, "kubectl", "--context", KubeContext, "wait", "--for=condition=Ready", "pod", "-l", "app.kubernetes.io/name=prometheus", "-n", MonitoringNS, "--timeout=5m"); err != nil {
 		return fmt.Errorf("wait for Prometheus pod: %w", err)
+	}
+	exporterService, err := m.Runner.Output(ctx, "kubectl", "--context", KubeContext, "get", "service/dcgm-exporter", "-n", "gpu-lab-system", "-o", "name", "--ignore-not-found=true")
+	if err != nil {
+		return fmt.Errorf("check DCGM Exporter service: %w", err)
+	}
+	if strings.TrimSpace(exporterService) == "" {
+		return nil
 	}
 
 	client := monitoring.New(m.Runner)
@@ -232,6 +199,8 @@ func (m Manager) waitForMonitoring(ctx context.Context) error {
 		}
 		if err != nil {
 			lastErr = err
+		} else if len(result.Samples) == 0 {
+			lastErr = fmt.Errorf("DCGM Exporter query returned no samples")
 		} else {
 			lastErr = fmt.Errorf("expected 3 dcgm-exporter targets, got %s", formatMonitoringValue(result.Samples[0].Value))
 		}
@@ -311,11 +280,15 @@ func (m Manager) Status(ctx context.Context) error {
 	commands := [][]string{
 		{"get", "nodes", "-o", "custom-columns=NAME:.metadata.name,GPU-CAPACITY:.status.capacity.nvidia\\.com/gpu,GPU-ALLOCATABLE:.status.allocatable.nvidia\\.com/gpu,STATUS:.status.conditions[-1].type"},
 		{"get", "pods", "-A", "-o", "wide"},
-		{"get", "configmap", "gpu-lab-scenario", "-n", "gpu-lab-system", "-o", "jsonpath={.data.scenario\\.yaml}"},
 	}
 	for _, args := range commands {
 		full := append([]string{"--context", KubeContext}, args...)
 		if err := m.Runner.Run(ctx, "kubectl", full...); err != nil {
+			return err
+		}
+	}
+	if runner.Exists("helm") {
+		if err := m.Runner.Run(ctx, "helm", "--kube-context", KubeContext, "list", "--all-namespaces"); err != nil {
 			return err
 		}
 	}
@@ -329,6 +302,15 @@ func (m Manager) ApplyAsset(ctx context.Context, asset string) error {
 	}
 	data = renderAsset(data, m.Image)
 	return m.Runner.RunInput(ctx, data, "kubectl", "--context", KubeContext, "apply", "-f", "-")
+}
+
+func (m Manager) DeleteAsset(ctx context.Context, asset string) error {
+	data, err := deployassets.FS.ReadFile(asset)
+	if err != nil {
+		return err
+	}
+	data = renderAsset(data, m.Image)
+	return m.Runner.RunInput(ctx, data, "kubectl", "--context", KubeContext, "delete", "-f", "-", "--ignore-not-found=true")
 }
 
 func renderAsset(data []byte, image string) []byte {
@@ -351,6 +333,44 @@ func (m Manager) resolveImageSource() (string, error) {
 
 func (m Manager) ApplyJSON(ctx context.Context, data []byte) error {
 	return m.Runner.RunInput(ctx, data, "kubectl", "--context", KubeContext, "apply", "-f", "-")
+}
+
+func (m Manager) saveClusterConfig(ctx context.Context) error {
+	manifest := map[string]any{
+		"apiVersion": "v1",
+		"kind":       "ConfigMap",
+		"metadata": map[string]any{
+			"name":      "gpu-lab-config",
+			"namespace": "kube-system",
+			"labels": map[string]string{
+				"app.kubernetes.io/part-of":    "gpu-lab",
+				"app.kubernetes.io/managed-by": "gpu-lab",
+			},
+		},
+		"data": map[string]string{
+			"runtime-image": m.Image,
+		},
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		return fmt.Errorf("marshal gpu-lab cluster config: %w", err)
+	}
+	if err := m.ApplyJSON(ctx, data); err != nil {
+		return fmt.Errorf("save gpu-lab cluster config: %w", err)
+	}
+	return nil
+}
+
+func (m Manager) clusterRuntimeImage(ctx context.Context) (string, error) {
+	image, err := m.Runner.Output(ctx, "kubectl", "--context", KubeContext, "get", "configmap/gpu-lab-config", "-n", "kube-system", "-o", "jsonpath={.data.runtime-image}")
+	if err != nil {
+		return "", fmt.Errorf("read gpu-lab cluster config: %w", err)
+	}
+	image = strings.TrimSpace(image)
+	if image == "" {
+		return "", fmt.Errorf("gpu-lab cluster config has no runtime image; run gpu create again")
+	}
+	return image, nil
 }
 
 func (m Manager) DeleteScenarioPods(ctx context.Context) error {
@@ -385,7 +405,44 @@ func (m Manager) Helm(ctx context.Context, args ...string) error {
 	if !runner.Exists("helm") {
 		return fmt.Errorf("helm is not installed; install the official Helm CLI, then retry")
 	}
+	if helmUsesCluster(args) && !hasHelmContext(args) {
+		exists, err := m.Exists(ctx)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("gpu-lab cluster does not exist; run gpu create first")
+		}
+		if _, err := m.Kubeconfig.Setup(ctx, ClusterName); err != nil {
+			return fmt.Errorf("setup gpu-lab kubeconfig: %w", err)
+		}
+		args = append([]string{"--kube-context", KubeContext}, args...)
+	}
 	return m.Runner.Run(ctx, "helm", args...)
+}
+
+func helmUsesCluster(args []string) bool {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		switch arg {
+		case "install", "upgrade", "uninstall", "delete", "list", "ls", "status", "get", "history", "rollback", "test":
+			return true
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+func hasHelmContext(args []string) bool {
+	for _, arg := range args {
+		if arg == "--kube-context" || strings.HasPrefix(arg, "--kube-context=") || arg == "--kubeconfig" || strings.HasPrefix(arg, "--kubeconfig=") {
+			return true
+		}
+	}
+	return false
 }
 
 func (m Manager) require(names ...string) error {

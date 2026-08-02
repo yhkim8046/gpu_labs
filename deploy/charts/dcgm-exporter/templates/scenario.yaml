@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gpu-lab-scenario
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: gpu-lab
+    app.kubernetes.io/managed-by: Helm
+data:
+  generation: "0"
+  scenario.yaml: |
+    apiVersion: gpu-lab.io/v1alpha1
+    kind: Scenario
+    metadata:
+      name: normal
+    spec:
+      description: Stable baseline for all synthetic GPUs
+      actions: []
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gpu-lab-demo
+  labels:
+    app.kubernetes.io/part-of: gpu-lab
+    app.kubernetes.io/managed-by: Helm

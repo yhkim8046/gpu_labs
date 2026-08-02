@@ -26,15 +26,18 @@ gpu-lab은 GPU나 CUDA를 흉내 내는 프로젝트가 아닙니다. Kubernetes
 - Docker Engine 또는 Docker Desktop
 - kind 기반 실행
 
-MVP 구현 단계에서는 `docker`, `kind`, `kubectl`, `helm`을 CLI가 진단하고 필요한 Kubernetes 리소스를 자동 구성하는 방식으로 동작합니다. 로컬 의존성 바이너리는 공식 설치 방법으로 준비하며, Helm chart 설치가 필요할 때는 공식 Helm CLI를 그대로 호출할 수 있습니다.
+CLI는 cluster bootstrap과 component 설치를 분리합니다. `gpu create`는 kind cluster와 runtime image만 준비하고, 수강생은 GPU infrastructure 구성요소를 실제 Helm release로 하나씩 설치합니다.
 
 ```bash
-gpu-lab helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-gpu-lab helm repo update
-gpu-lab helm install gpu-lab-monitoring prometheus-community/kube-prometheus-stack
+gpu create
+gpu helm catalog
+gpu helm install nvidia-device-plugin
+gpu helm install dcgm-exporter
+gpu helm install monitoring
+gpu helm list --all-namespaces
 ```
 
-`gpu-lab helm ...`은 자체 Helm 구현이 아니라 로컬에 설치된 공식 `helm` 바이너리의 안전한 argument passthrough입니다.
+`gpu helm ...`은 Helm을 재구현하지 않습니다. release binary는 버전이 고정된 GPU Lab chart를 GHCR OCI registry에서 내려받아 실제 `helm install`을 실행하며, 일반 Helm 명령은 공식 CLI로 전달됩니다. cluster 명령은 항상 `gpu-lab` kube context를 사용합니다.
 
 ## 설계 문서
 
@@ -70,13 +73,15 @@ gpu-lab helm install gpu-lab-monitoring prometheus-community/kube-prometheus-sta
 
 ## Release binary 설치
 
-강의 수강생은 Go toolchain 없이 [Release & Installation](docs/release.md)의 release binary를 설치할 수 있습니다. 설치 후에는 `go run ./cmd/gpu-lab` 대신 `gpu-lab`을 사용합니다.
+강의 수강생은 Go toolchain 없이 [Release & Installation](docs/release.md)의 release binary를 설치할 수 있습니다. 기본 명령은 `gpu`이며, 기존 `gpu-lab` 이름도 호환용으로 함께 제공합니다.
 
 ```bash
-gpu-lab version
-gpu-lab doctor
-gpu-lab create
-gpu-lab create --local       # developer local-build mode
+gpu version
+gpu doctor
+gpu create
+gpu helm install nvidia-device-plugin
+gpu helm install dcgm-exporter
+gpu helm install monitoring
 ```
 
 Git tag `v1.0.0`을 push하면 GitHub Actions가 GHCR에 다음 multi-arch runtime image를 publish합니다.
@@ -85,7 +90,7 @@ Git tag `v1.0.0`을 push하면 GitHub Actions가 GHCR에 다음 multi-arch runti
 ghcr.io/<github-owner>/gpu-lab-runtime:1.0.0
 ```
 
-Release binary는 CLI version에 맞는 GHCR image를 자동으로 사용합니다. 소스에서 `go run`을 실행하거나 `gpu-lab create --local`을 지정하면 local `gpu-lab:dev` image를 build합니다.
+Release binary는 CLI version에 맞는 GHCR image를 자동으로 사용합니다. 소스에서 `go run`을 실행하거나 `gpu create --local`을 지정하면 local `gpu-lab:dev` image를 build합니다.
 
 ## 소스에서 실행하는 명령
 
@@ -107,6 +112,9 @@ go run ./cmd/gpu-lab context use gpu-lab
 
 ```bash
 go run ./cmd/gpu-lab create
+go run ./cmd/gpu-lab helm install nvidia-device-plugin
+go run ./cmd/gpu-lab helm install dcgm-exporter
+go run ./cmd/gpu-lab helm install monitoring
 go run ./cmd/gpu-lab status
 go run ./cmd/gpu-lab metrics
 go run ./cmd/gpu-lab dashboard --port 3000

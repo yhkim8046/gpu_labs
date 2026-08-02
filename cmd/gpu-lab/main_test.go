@@ -32,7 +32,7 @@ func TestHelmPassthrough(t *testing.T) {
 	_ = os.Setenv("PATH", dir+string(os.PathListSeparator)+oldPath)
 	_ = os.Setenv("GPU_LAB_TEST_ARGS", argsFile)
 	var stdout, stderr bytes.Buffer
-	if err := run(context.Background(), []string{"helm", "install", "demo", "repo/chart", "--namespace", "lab"}, &stdout, &stderr); err != nil {
+	if err := run(context.Background(), []string{"helm", "repo", "add", "demo", "https://example.invalid/charts"}, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(argsFile)
@@ -40,7 +40,7 @@ func TestHelmPassthrough(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := strings.Split(strings.TrimSpace(string(data)), "\n")
-	want := []string{"install", "demo", "repo/chart", "--namespace", "lab"}
+	want := []string{"repo", "add", "demo", "https://example.invalid/charts"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("args = %v, want %v", got, want)
 	}
@@ -74,6 +74,26 @@ func TestParseCreateArgs(t *testing.T) {
 	}
 	if options.image != "ghcr.io/example/gpu-lab-runtime:1.0.0" {
 		t.Fatalf("image = %q, want explicit image", options.image)
+	}
+
+	options, err = parseCreateArgs([]string{"--all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !options.installAll {
+		t.Fatal("installAll = false, want true")
+	}
+}
+
+func TestHelmCatalog(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := run(context.Background(), []string{"helm", "catalog"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	for _, component := range []string{"nvidia-device-plugin", "dcgm-exporter", "monitoring"} {
+		if !strings.Contains(stdout.String(), component) {
+			t.Fatalf("catalog output = %q, missing %q", stdout.String(), component)
+		}
 	}
 }
 

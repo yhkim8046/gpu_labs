@@ -42,7 +42,7 @@ Device Plugin API와 kind container 내부의 kubelet socket 연결은 MVP의 �
 
 ### 2.2 GPU Operator 계층은 bootstrap behavior로 표현한다
 
-MVP에는 실제 GPU Operator controller나 CRD를 만들지 않습니다. 대신 `gpu-lab create`가 다음 구성요소를 선언된 순서로 설치합니다.
+MVP에는 실제 GPU Operator controller나 CRD를 만들지 않습니다. `gpu create`로 base cluster를 만든 뒤 수강생이 `gpu helm install`로 다음 구성요소를 선언된 순서로 설치합니다.
 
 1. `nvidia-device-plugin`
 2. `dcgm-exporter` synthetic telemetry layer
@@ -307,7 +307,7 @@ Scenario command는 ConfigMap generation과 필요한 workload를 적용한 뒤 
 
 ## 7. Monitoring stack
 
-MVP는 `kube-prometheus-stack` Helm chart를 고정된 values와 함께 설치하는 방식을 채택합니다. CLI가 Helm release를 `gpu-lab-monitoring` 이름으로 관리하므로 create는 idempotent하고 reset은 monitoring stack을 재설치하지 않습니다.
+MVP는 `kube-prometheus-stack` Helm chart를 고정된 values와 함께 설치합니다. `gpu create`는 monitoring을 설치하지 않으며, 수강생이 `gpu helm install monitoring`을 실행했을 때 공식 Helm CLI가 `gpu-lab-monitoring` release를 생성합니다.
 
 ### Prometheus
 
@@ -328,53 +328,59 @@ Helm chart와 image version은 재현성을 위해 파일에서 명시적으로 
 
 ## 8. CLI 설계
 
-CLI binary 이름은 `gpu-lab`이며 Go로 구현합니다. 외부 command 실행은 shell string 조합이 아니라 argument 배열 기반 process runner를 사용합니다.
+수강생용 CLI binary 이름은 `gpu`이며 Go로 구현합니다. 기존 자동화 호환을 위해 동일한 binary를 `gpu-lab` 이름으로도 배포합니다. 외부 command 실행은 shell string 조합이 아니라 argument 배열 기반 process runner를 사용합니다.
 
 | Command | 책임 |
 |---|---|
-| `gpu-lab create` | 의존성 확인, kind cluster 생성, GPU/monitoring 설치, readiness 대기 |
-| `gpu-lab destroy` | gpu-lab kind cluster 삭제 |
-| `gpu-lab reset` | scenario reset과 lab-owned 상태 복구 |
-| `gpu-lab doctor` | Docker, kind, kubectl, helm, context, port, image pull 가능 여부 진단 |
-| `gpu-lab status` | node/resource/pod/monitoring/scenario 요약 |
-| `gpu-lab dashboard [--port <port>]` | Grafana service port-forward shortcut |
-| `gpu-lab metrics [--query <PromQL>] [--json]` | 기본 GPU metric 또는 custom PromQL 조회 |
-| `gpu-lab context list` | 현재 context와 사용 가능한 kubeconfig context 표시 |
-| `gpu-lab context setup` | dedicated kubeconfig와 `gpu-lab` alias context 생성 |
-| `gpu-lab context use <name>` | 기본 kubeconfig의 current-context 전환 |
-| `gpu-lab scenario list` | 내장 YAML scenario 목록 표시 |
-| `gpu-lab scenario run <name>` | scenario 검증·적용·상태 확인 |
-| `gpu-lab scenario inspect <name>` | 실행 전 scenario duration, target, metric, action 확인 |
-| `gpu-lab scenario reset` | `normal` 복구 |
-| `gpu-lab verify <name>` | active ConfigMap, Prometheus metric, Pod phase/event 검증 |
-| `gpu-lab helm <official-helm-args...>` | 로컬 공식 Helm CLI를 그대로 실행 |
+| `gpu create` | 의존성 확인, kind cluster 생성, runtime image load, node readiness 대기 |
+| `gpu create --all` | base cluster 생성 후 모든 component를 순서대로 설치하는 CI/개발 shortcut |
+| `gpu destroy` | gpu-lab kind cluster 삭제 |
+| `gpu reset` | scenario reset과 lab-owned 상태 복구 |
+| `gpu doctor` | Docker, kind, kubectl, helm, context, port, image pull 가능 여부 진단 |
+| `gpu status` | node/resource/pod/monitoring/scenario 요약 |
+| `gpu dashboard [--port <port>]` | Grafana service port-forward shortcut |
+| `gpu metrics [--query <PromQL>] [--json]` | 기본 GPU metric 또는 custom PromQL 조회 |
+| `gpu context list` | 현재 context와 사용 가능한 kubeconfig context 표시 |
+| `gpu context setup` | dedicated kubeconfig와 `gpu-lab` alias context 생성 |
+| `gpu context use <name>` | 기본 kubeconfig의 current-context 전환 |
+| `gpu scenario list` | 내장 YAML scenario 목록 표시 |
+| `gpu scenario run <name>` | scenario 검증·적용·상태 확인 |
+| `gpu scenario inspect <name>` | 실행 전 scenario duration, target, metric, action 확인 |
+| `gpu scenario reset` | `normal` 복구 |
+| `gpu verify <name>` | active ConfigMap, Prometheus metric, Pod phase/event 검증 |
+| `gpu helm catalog` | 설치 가능한 교육용 Helm component 표시 |
+| `gpu helm install <component>` | component shorthand를 실제 공식 `helm install`로 확장 |
+| `gpu helm <official-helm-args...>` | 일반 공식 Helm CLI 명령 실행 |
 
 ### Official CLI passthrough
 
-Helm chart repository, plugin, OCI registry, authentication, version 선택은 공식 Helm CLI의 책임으로 둡니다. gpu-lab은 Helm client를 재구현하거나 chart archive를 자체적으로 다운로드하지 않습니다.
+Helm chart repository, plugin, OCI registry, authentication, version 선택은 공식 Helm CLI의 책임으로 둡니다. gpu는 Helm client를 재구현하지 않습니다. GPU Lab component 이름만 versioned GHCR OCI chart 또는 고정된 official chart와 release metadata로 해석합니다. 개발 빌드는 publish 전 검증을 위해 같은 chart의 embedded copy를 사용합니다.
 
 ```bash
-gpu-lab helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-gpu-lab helm repo update
-gpu-lab helm search repo prometheus-community/kube-prometheus-stack
-gpu-lab helm install gpu-lab-monitoring prometheus-community/kube-prometheus-stack \
-  --namespace gpu-lab-monitoring --create-namespace
+gpu helm install nvidia-device-plugin
+gpu helm install dcgm-exporter
+gpu helm install monitoring
+gpu helm list --all-namespaces
+
+gpu helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+gpu helm search repo prometheus-community/kube-prometheus-stack
 ```
 
 구현 규칙:
 
-- `gpu-lab helm` 뒤의 인자는 파싱·변경하지 않고 `helm` 프로세스에 순서대로 전달한다.
+- 알려진 component shorthand는 release, chart, namespace, values로 확장한 뒤 `helm install`을 실행한다.
+- 일반 `gpu helm` 인자는 공식 `helm` 프로세스에 argument 배열로 전달한다.
 - shell 문자열을 만들지 않고 `exec.CommandContext`의 argument 배열로 실행한다.
-- `gpu-lab create`가 monitoring stack을 설치할 때도 같은 runner를 사용한다.
-- Helm이 없으면 doctor가 공식 설치 문서와 `gpu-lab helm` 사용 조건을 안내한다.
-- kube context나 release 이름을 자동으로 덮어쓰지 않는다. 자동화가 필요한 `create` 경로만 명시된 values와 release 이름을 사용한다.
+- `create`는 Helm을 호출하지 않는다. component 설치 lifecycle은 `gpu helm`이 전담한다.
+- Helm이 없으면 doctor가 공식 설치 문서와 `gpu helm` 사용 조건을 안내한다.
+- cluster-aware Helm 명령은 기본적으로 `gpu-lab` context를 사용하고, 명시된 사용자 context는 덮어쓰지 않는다.
 
 ### Idempotency
 
 - cluster name은 `gpu-lab`으로 고정한다.
 - kubectl context alias는 `gpu-lab`으로 고정하고, kind의 원래 `kind-gpu-lab` context는 보존한다.
 - dedicated kubeconfig는 `${HOME}/.kube/gpu-lab.config`에 저장한다.
-- create는 이미 존재하는 cluster를 재사용하고 누락된 구성만 reconcile한다.
+- create는 이미 존재하는 cluster를 재사용하지만 component를 자동 설치하거나 변경하지 않는다.
 - destroy 대상은 kind cluster 이름을 명시적으로 확인한 뒤 삭제한다.
 - CLI는 `gpu-lab` context를 확인하며, 다른 context에 apply하지 않는다.
 
@@ -445,10 +451,12 @@ gpu-lab/
 
 완료 기준:
 
-- `gpu-lab create`의 최소 cluster bootstrap이 동작한다.
+- `gpu create`의 최소 cluster bootstrap이 동작한다.
 - control-plane 1개와 worker 3개가 Ready다.
+- `gpu helm install nvidia-device-plugin`이 실제 Helm release를 만든다.
 - 각 worker에 `nvidia.com/gpu: 8` capacity/allocatable이 보인다.
 - GPU 요청 1개 Pod가 worker에 배치된다.
+- `gpu helm install dcgm-exporter`와 `gpu helm install monitoring`이 독립 release를 만든다.
 - Prometheus와 Grafana가 Ready다.
 
 ### Phase 3 — Exporter
@@ -484,7 +492,10 @@ gpu-lab/
 ```text
 create
   → 4 nodes Ready
+  → helm install nvidia-device-plugin
   → 3 workers expose 8 fake GPUs each
+  → helm install dcgm-exporter
+  → helm install monitoring
   → GPU workload schedules
   → Grafana dashboard loads
   → run gpu-util-high
@@ -498,7 +509,7 @@ create
   → destroy
 ```
 
-CI는 Linux Docker runner에서 `create → 모든 기본 scenario → verify → reset → destroy` full e2e를 수행합니다. 로컬 macOS/WSL2에서는 `E2E_KEEP_CLUSTER=1 make e2e`로 cluster를 보존하는 smoke test를 실행할 수 있습니다. kind, kubectl, Helm과 chart version은 CI workflow에서 고정하고, 버전 변경은 별도 dependency update PR로 다룹니다.
+CI는 Linux Docker runner에서 `create → 3개 Helm component 단계별 설치 → 모든 기본 scenario → verify → reset → destroy` full e2e를 수행합니다. 로컬 macOS/WSL2에서는 `E2E_KEEP_CLUSTER=1 make e2e`로 cluster를 보존하는 smoke test를 실행할 수 있습니다. kind, kubectl, Helm과 chart version은 CI workflow에서 고정하고, 버전 변경은 별도 dependency update PR로 다룹니다.
 
 ## 11. 기술적 리스크
 
