@@ -18,6 +18,16 @@ on_error() {
 
 trap on_error ERR
 
+temporary_dir=""
+
+cleanup() {
+  if [[ -n "$temporary_dir" ]]; then
+    rm -rf -- "$temporary_dir"
+  fi
+}
+
+trap cleanup EXIT
+
 require_command() {
   command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
 }
@@ -104,7 +114,6 @@ main() {
   local version
   local asset
   local base_url
-  local temporary_dir
   local archive
   local checksums
   local extract_dir
@@ -130,7 +139,6 @@ main() {
   asset="gpu-lab_${version}_${os}_${arch}.tar.gz"
   base_url="https://github.com/${repository}/releases/download/${tag}"
   temporary_dir="$(mktemp -d "${TMPDIR:-/tmp}/gpu-lab-install.XXXXXX")"
-  trap 'rm -rf -- "$temporary_dir"' EXIT
 
   archive="${temporary_dir}/${asset}"
   checksums="${temporary_dir}/checksums.txt"
