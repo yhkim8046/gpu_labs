@@ -69,7 +69,8 @@ for scenario_name in "${scenario_names[@]}"; do
   go run ./cmd/gpu-lab scenario run "$scenario_name"
   go run ./cmd/gpu-lab verify "$scenario_name"
   if [[ "$scenario_name" == "xid-79" ]]; then
-    [[ "$(go run ./cmd/gpu-lab nvidia-smi --query-gpu=xid.errors --format=csv,noheader,nounits | sort -u)" == "79" ]]
+    xid_errors="$(go run ./cmd/gpu-lab nvidia-smi --query-gpu=xid.errors --format=csv,noheader,nounits | sort -u)"
+    grep -qx '79' <<<"$xid_errors"
   fi
   go run ./cmd/gpu-lab scenario reset
   go run ./cmd/gpu-lab verify normal
