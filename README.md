@@ -37,7 +37,7 @@ gpu helm install monitoring
 gpu helm list --all-namespaces
 ```
 
-`gpu helm ...`은 Helm을 재구현하지 않습니다. release binary는 버전이 고정된 GPU Lab chart를 GHCR OCI registry에서 내려받아 실제 `helm install`을 실행하며, 일반 Helm 명령은 공식 CLI로 전달됩니다. cluster 명령은 항상 `gpu-lab` kube context를 사용합니다.
+`gpu helm ...`은 Helm을 재구현하지 않습니다. release binary는 버전이 고정된 GPU Lab chart를 GHCR OCI registry에서 내려받아 공식 Helm의 `upgrade --install`을 실행하며, 일반 Helm 명령은 공식 CLI로 전달됩니다. cluster 명령은 항상 `gpu-lab` kube context를 사용합니다.
 
 ## 설계 문서
 

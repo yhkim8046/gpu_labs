@@ -80,7 +80,7 @@ func (m Manager) InstallComponent(ctx context.Context, name string, extraArgs ..
 			return err
 		}
 		defer cleanup()
-		args := []string{"--kube-context", KubeContext, "install", component.Release, chartPath, "--namespace", component.Namespace, "--create-namespace", "--wait", "--timeout", "5m", "--set-string", "image=" + m.Image}
+		args := []string{"--kube-context", KubeContext, "upgrade", "--install", component.Release, chartPath, "--namespace", component.Namespace, "--create-namespace", "--wait", "--timeout", "5m", "--set-string", "image=" + m.Image}
 		if chartVersion != "" {
 			args = append(args, "--version", chartVersion)
 		}
@@ -92,7 +92,7 @@ func (m Manager) InstallComponent(ctx context.Context, name string, extraArgs ..
 			return err
 		}
 		defer cleanup()
-		args := []string{"--kube-context", KubeContext, "install", component.Release, m.Chart, "--namespace", component.Namespace, "--create-namespace", "--values", valuesPath, "--wait", "--timeout", "10m"}
+		args := []string{"--kube-context", KubeContext, "upgrade", "--install", component.Release, m.Chart, "--namespace", component.Namespace, "--create-namespace", "--values", valuesPath, "--wait", "--timeout", "10m"}
 		if m.ChartVersion != "" {
 			args = append(args, "--version", m.ChartVersion)
 		}

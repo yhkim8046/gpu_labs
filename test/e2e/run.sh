@@ -59,6 +59,7 @@ go run ./cmd/gpu-lab helm catalog
 go run ./cmd/gpu-lab helm install nvidia-device-plugin
 go run ./cmd/gpu-lab helm install dcgm-exporter
 go run ./cmd/gpu-lab helm install monitoring
+go run ./cmd/gpu-lab helm install all
 go run ./cmd/gpu-lab helm list --all-namespaces
 go run ./cmd/gpu-lab verify normal
 go run ./cmd/gpu-lab nvidia-smi --list-gpus
