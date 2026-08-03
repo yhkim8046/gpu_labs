@@ -100,7 +100,7 @@ gpu helm install monitoring
 gpu helm list --all-namespaces
 ```
 
-각 shorthand는 실제 공식 Helm 프로세스로 다음 release를 만듭니다.
+각 shorthand는 실제 공식 Helm 프로세스로 다음 release를 만들거나 업데이트합니다.
 
 | 명령 | Helm release | namespace |
 |---|---|---|
@@ -118,6 +118,8 @@ gpu helm install my-release prometheus-community/example-chart
 ```
 
 cluster-aware 명령에는 `--kube-context gpu-lab`이 자동 적용됩니다. 사용자가 `--kube-context` 또는 `--kubeconfig`를 직접 지정하면 그 값을 존중합니다. 전체 자동 설치가 필요한 CI/개발 환경에서는 `gpu create --all` 또는 `gpu helm install all`을 사용할 수 있습니다.
+
+구성요소 설치는 내부적으로 Helm `upgrade --install`을 사용하므로 `gpu create --all`이나 `gpu helm install all`을 중단 후 다시 실행해도 이미 설치된 release를 업데이트하며 계속 진행합니다.
 
 ## Scenario 실습
 

@@ -363,7 +363,7 @@ Helm chart와 image version은 재현성을 위해 파일에서 명시적으로 
 | `gpu scenario reset` | `normal` 복구 |
 | `gpu verify <name>` | active ConfigMap, Prometheus metric, Pod phase/event 검증 |
 | `gpu helm catalog` | 설치 가능한 교육용 Helm component 표시 |
-| `gpu helm install <component>` | component shorthand를 실제 공식 `helm install`로 확장 |
+| `gpu helm install <component>` | component shorthand를 실제 공식 `helm upgrade --install`로 확장 |
 | `gpu helm <official-helm-args...>` | 일반 공식 Helm CLI 명령 실행 |
 
 ### Official CLI passthrough
@@ -382,7 +382,7 @@ gpu helm search repo prometheus-community/kube-prometheus-stack
 
 구현 규칙:
 
-- 알려진 component shorthand는 release, chart, namespace, values로 확장한 뒤 `helm install`을 실행한다.
+- 알려진 component shorthand는 release, chart, namespace, values로 확장한 뒤 `helm upgrade --install`을 실행한다.
 - 일반 `gpu helm` 인자는 공식 `helm` 프로세스에 argument 배열로 전달한다.
 - shell 문자열을 만들지 않고 `exec.CommandContext`의 argument 배열로 실행한다.
 - `create`는 Helm을 호출하지 않는다. component 설치 lifecycle은 `gpu helm`이 전담한다.
@@ -467,7 +467,7 @@ gpu-lab/
 
 - `gpu create`의 최소 cluster bootstrap이 동작한다.
 - control-plane 1개와 worker 3개가 Ready다.
-- `gpu helm install nvidia-device-plugin`이 실제 Helm release를 만든다.
+- `gpu helm install nvidia-device-plugin`이 실제 Helm release를 만들거나 업데이트한다.
 - 각 worker에 `nvidia.com/gpu: 8` capacity/allocatable이 보인다.
 - GPU 요청 1개 Pod가 worker에 배치된다.
 - `gpu helm install dcgm-exporter`와 `gpu helm install monitoring`이 독립 release를 만든다.
