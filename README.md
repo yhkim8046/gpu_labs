@@ -118,9 +118,10 @@ GPU Lab는 synthetic telemetry를 NVIDIA-SMI 형태로 확인할 수 있는 호�
 gpu nvidia-smi
 nvidia-smi --list-gpus
 nvidia-smi --query-gpu=temperature.gpu,memory.used,utilization.gpu --format=csv,noheader,nounits
+gpu nvidia-smi --node gpu-lab-worker
 ```
 
-Release archive의 `nvidia-smi`를 PATH에 설치하면 `nvidia-smi`를 직접 입력할 수 있습니다. 이 명령은 실제 NVIDIA driver/CUDA를 사용하지 않고, 설치된 Prometheus의 `gpu_lab_*` metric을 읽습니다.
+기본 출력은 synthetic 노드별로 하나의 NVIDIA-SMI 블록을 보여줍니다. 특정 노드만 확인하려면 `--node <node-name>`을 사용합니다. Release archive의 `nvidia-smi`를 PATH에 설치하면 `nvidia-smi`를 직접 입력할 수 있습니다. 이 명령은 실제 NVIDIA driver/CUDA를 사용하지 않고, 설치된 Prometheus의 `gpu_lab_*` metric을 읽습니다.
 
 실제 cluster lifecycle을 실행하려면 Docker, kind, kubectl, Helm을 설치한 뒤 저장소 루트에서 다음을 실행합니다.
 

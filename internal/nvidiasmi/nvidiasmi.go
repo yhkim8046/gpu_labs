@@ -44,6 +44,7 @@ type GPU struct {
 type options struct {
 	list     bool
 	query    []string
+	node     string
 	noHeader bool
 	noUnits  bool
 	help     bool
@@ -66,16 +67,16 @@ func Run(ctx context.Context, r runner.Runner, args []string, stdout io.Writer) 
 		_, err := io.WriteString(stdout, "NVIDIA-SMI synthetic compatibility layer (GPU Lab)\n")
 		return err
 	}
-	if parsed.list {
-		gpus, err := collect(ctx, r)
-		if err != nil {
-			return err
-		}
-		return printList(stdout, gpus)
-	}
 	gpus, err := collect(ctx, r)
 	if err != nil {
 		return err
+	}
+	gpus, err = selectNode(gpus, parsed.node)
+	if err != nil {
+		return err
+	}
+	if parsed.list {
+		return printList(stdout, gpus)
 	}
 	if len(parsed.query) > 0 {
 		return printQuery(stdout, gpus, parsed)
@@ -92,6 +93,17 @@ func parseArgs(args []string) (options, error) {
 			parsed.help = true
 		case arg == "-L" || arg == "--list-gpus":
 			parsed.list = true
+		case strings.HasPrefix(arg, "--node="):
+			parsed.node = strings.TrimSpace(strings.TrimPrefix(arg, "--node="))
+			if parsed.node == "" {
+				return options{}, errors.New("nvidia-smi: --node requires a node name")
+			}
+		case arg == "--node":
+			if i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" {
+				return options{}, errors.New("nvidia-smi: --node requires a node name")
+			}
+			i++
+			parsed.node = strings.TrimSpace(args[i])
 		case strings.HasPrefix(arg, "--query-gpu="):
 			if err := addQueryFields(&parsed, strings.TrimPrefix(arg, "--query-gpu=")); err != nil {
 				return options{}, err
@@ -315,15 +327,64 @@ func sortedGPUs(byKey map[string]*GPU) []GPU {
 		}
 		return gpus[i].Index < gpus[j].Index
 	})
+	currentNode := ""
+	localIndex := 0
 	for i := range gpus {
-		gpus[i].Index = i
+		if gpus[i].Node != currentNode {
+			currentNode = gpus[i].Node
+			localIndex = 0
+		}
+		gpus[i].Index = localIndex
+		localIndex++
 	}
 	return gpus
 }
 
-func printList(stdout io.Writer, gpus []GPU) error {
+type nodeGPUs struct {
+	Name string
+	GPUs []GPU
+}
+
+func groupGPUs(gpus []GPU) []nodeGPUs {
+	groups := make([]nodeGPUs, 0)
 	for _, gpu := range gpus {
-		fmt.Fprintf(stdout, "GPU %d: %s (UUID: %s, node: %s)\n", gpu.Index, gpu.Name, gpu.UUID, gpu.Node)
+		if len(groups) == 0 || groups[len(groups)-1].Name != gpu.Node {
+			groups = append(groups, nodeGPUs{Name: gpu.Node})
+		}
+		groups[len(groups)-1].GPUs = append(groups[len(groups)-1].GPUs, gpu)
+	}
+	return groups
+}
+
+func selectNode(gpus []GPU, node string) ([]GPU, error) {
+	if node == "" {
+		return gpus, nil
+	}
+	selected := make([]GPU, 0)
+	for _, gpu := range gpus {
+		if gpu.Node == node {
+			selected = append(selected, gpu)
+		}
+	}
+	if len(selected) == 0 {
+		return nil, fmt.Errorf("nvidia-smi: no synthetic GPUs were reported for node %q", node)
+	}
+	return selected, nil
+}
+
+func printList(stdout io.Writer, gpus []GPU) error {
+	if len(gpus) == 0 {
+		return errors.New("nvidia-smi: no synthetic GPUs were reported")
+	}
+	groups := groupGPUs(gpus)
+	for i, group := range groups {
+		fmt.Fprintf(stdout, "GPU Lab node: %s\n", group.Name)
+		for _, gpu := range group.GPUs {
+			fmt.Fprintf(stdout, "GPU %d: %s (UUID: %s)\n", gpu.Index, gpu.Name, gpu.UUID)
+		}
+		if i < len(groups)-1 {
+			fmt.Fprintln(stdout)
+		}
 	}
 	return nil
 }
@@ -332,6 +393,24 @@ func printSummary(stdout io.Writer, gpus []GPU) error {
 	if len(gpus) == 0 {
 		return errors.New("nvidia-smi: no synthetic GPUs were reported")
 	}
+	groups := groupGPUs(gpus)
+	for i, group := range groups {
+		fmt.Fprintf(stdout, "GPU Lab node: %s\n", group.Name)
+		printSummaryBlock(stdout, group.GPUs)
+		if i < len(groups)-1 {
+			fmt.Fprintln(stdout)
+		}
+	}
+	fmt.Fprintln(stdout, "Note: values are synthetic; this command does not use an NVIDIA driver or CUDA.")
+	for _, gpu := range gpus {
+		if gpu.XID != 0 {
+			fmt.Fprintf(stdout, "Synthetic alert: node %s GPU %d reports XID %d.\n", gpu.Node, gpu.Index, gpu.XID)
+		}
+	}
+	return nil
+}
+
+func printSummaryBlock(stdout io.Writer, gpus []GPU) {
 	fmt.Fprintln(stdout, "+"+strings.Repeat("-", summaryInnerWidth)+"+")
 	fmt.Fprintln(stdout, summaryLine("NVIDIA-SMI 550.163.01              Driver Version: 550.163.01      CUDA Version: 12.4"))
 	fmt.Fprintln(stdout, "|"+strings.Repeat("-", 41)+"+"+strings.Repeat("-", 24)+"+"+strings.Repeat("-", 22)+"|")
@@ -364,13 +443,6 @@ func printSummary(stdout io.Writer, gpus []GPU) error {
 	fmt.Fprintln(stdout, summaryLine(" No running processes found"))
 	fmt.Fprintln(stdout, "+"+strings.Repeat("-", summaryInnerWidth)+"+")
 	fmt.Fprintln(stdout)
-	fmt.Fprintln(stdout, "Note: values are synthetic; this command does not use an NVIDIA driver or CUDA.")
-	for _, gpu := range gpus {
-		if gpu.XID != 0 {
-			fmt.Fprintf(stdout, "Synthetic alert: GPU %d reports XID %d.\n", gpu.Index, gpu.XID)
-		}
-	}
-	return nil
 }
 
 const summaryInnerWidth = 89
@@ -402,15 +474,22 @@ func printQuery(stdout io.Writer, gpus []GPU, parsed options) error {
 	if len(gpus) == 0 {
 		return errors.New("nvidia-smi: no synthetic GPUs were reported")
 	}
-	if !parsed.noHeader {
-		fmt.Fprintln(stdout, strings.Join(parsed.query, ", "))
-	}
-	for _, gpu := range gpus {
-		values := make([]string, 0, len(parsed.query))
-		for _, field := range parsed.query {
-			values = append(values, queryValue(gpu, field, parsed.noUnits))
+	groups := groupGPUs(gpus)
+	for i, group := range groups {
+		if !parsed.noHeader {
+			fmt.Fprintf(stdout, "GPU Lab node: %s\n", group.Name)
+			fmt.Fprintln(stdout, strings.Join(parsed.query, ", "))
 		}
-		fmt.Fprintln(stdout, strings.Join(values, ", "))
+		for _, gpu := range group.GPUs {
+			values := make([]string, 0, len(parsed.query))
+			for _, field := range parsed.query {
+				values = append(values, queryValue(gpu, field, parsed.noUnits))
+			}
+			fmt.Fprintln(stdout, strings.Join(values, ", "))
+		}
+		if !parsed.noHeader && i < len(groups)-1 {
+			fmt.Fprintln(stdout)
+		}
 	}
 	return nil
 }
@@ -469,7 +548,14 @@ const helpText = `nvidia-smi — synthetic NVIDIA-SMI-compatible view for GPU La
 Usage:
   nvidia-smi
   nvidia-smi --list-gpus
+  nvidia-smi --node <node-name>
+  nvidia-smi --node <node-name> --list-gpus
   nvidia-smi --query-gpu=<fields> --format=csv[,noheader][,nounits]
+
+GPU Lab extension:
+  --node=<node-name>       Show the synthetic nvidia-smi view for one node.
+
+Without --node, output is grouped into one nvidia-smi block per synthetic node.
 
 Supported fields:
   index,name,uuid,temperature.gpu,power.draw,power.limit,
