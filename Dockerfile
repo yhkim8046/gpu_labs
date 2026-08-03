@@ -15,6 +15,7 @@ ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w -X github.com/gpu-lab/gpu-lab/internal/version.Version=${VERSION} -X github.com/gpu-lab/gpu-lab/internal/version.Commit=${COMMIT} -X github.com/gpu-lab/gpu-lab/internal/version.BuildDate=${BUILD_DATE}" -o /out/gpu-lab ./cmd/gpu-lab
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags='-s -w' -o /out/nvidia-device-plugin ./cmd/nvidia-device-plugin
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags='-s -w' -o /out/dcgm-exporter ./cmd/dcgm-exporter
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags='-s -w' -o /out/nvidia-smi ./cmd/nvidia-smi
 
 FROM gcr.io/distroless/static-debian12:nonroot
 ARG VERSION=dev
@@ -29,4 +30,5 @@ LABEL org.opencontainers.image.title="gpu-lab runtime" \
 COPY --from=build /out/gpu-lab /usr/local/bin/gpu-lab
 COPY --from=build /out/nvidia-device-plugin /usr/local/bin/nvidia-device-plugin
 COPY --from=build /out/dcgm-exporter /usr/local/bin/dcgm-exporter
+COPY --from=build /out/nvidia-smi /usr/local/bin/nvidia-smi
 COPY LICENSE /licenses/gpu-lab/LICENSE

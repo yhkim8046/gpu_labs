@@ -6,45 +6,29 @@ gpu-lab은 실제 GPU나 CUDA를 제공하지 않습니다. Kubernetes GPU sched
 
 ## 1. CLI 설치
 
-수강생은 Go를 설치하거나 소스 저장소를 clone하지 않고 GitHub Release binary를 내려받아 사용할 수 있습니다. 현재 공개 Release는 `v0.2.0`입니다. 강의에서 `main`의 최신 시나리오를 사용할 때는 해당 버전의 새 Release가 발행된 뒤 `VERSION` 값을 그 버전으로 변경합니다.
+수강생은 Go를 설치하거나 소스 저장소를 clone하지 않고 공식 설치 스크립트로 CLI를 설치할 수 있습니다. 설치 스크립트가 최신 Release의 OS·CPU별 archive를 선택하고 checksum을 확인한 뒤 `gpu`, `gpu-lab`, `nvidia-smi`를 설치합니다.
 
 Release 페이지: <https://github.com/yhkim8046/gpu_labs/releases>
 
 ### macOS / Linux
 
-아래 예시는 Apple Silicon Mac입니다. Intel Mac은 `ARCH=amd64`, Linux는 `OS=linux`로 바꿉니다. WSL2에서는 Windows binary가 아니라 Linux binary를 설치합니다.
+Docker Desktop 또는 Docker Engine을 먼저 설치하고 실행한 뒤, 아래 설치 스크립트를 실행합니다. macOS, Linux, WSL2에서 현재 OS와 architecture를 자동으로 감지합니다.
 
 ```bash
-VERSION=0.2.0
-OS=darwin
-ARCH=arm64
-ASSET="gpu-lab_${VERSION}_${OS}_${ARCH}.tar.gz"
-BASE_URL="https://github.com/yhkim8046/gpu_labs/releases/download/v${VERSION}"
-
-curl -fL -o "$ASSET" "${BASE_URL}/${ASSET}"
-curl -fL -o checksums.txt "${BASE_URL}/checksums.txt"
-if command -v shasum >/dev/null 2>&1; then
-  grep "$ASSET" checksums.txt | shasum -a 256 -c -
-else
-  grep "$ASSET" checksums.txt | sha256sum -c -
-fi
-
-tar -xzf "$ASSET"
-mkdir -p "$HOME/.local/bin"
-install -m 0755 gpu-lab "$HOME/.local/bin/gpu-lab"
-install -m 0755 gpu "$HOME/.local/bin/gpu"
-
-export PATH="$HOME/.local/bin:$PATH"
-gpu-lab version
+curl --fail --silent --show-error --location \
+  --output gpu-lab-install.sh \
+  https://raw.githubusercontent.com/yhkim8046/gpu_labs/main/scripts/install.sh
+bash gpu-lab-install.sh
 ```
 
-새 터미널에서도 사용하려면 macOS에서는 `~/.zshrc`, Linux에서는 `~/.bashrc`에 다음을 추가합니다.
+기본 설치 위치는 `/usr/local/bin`입니다. 권한이 없으면 다음처럼 사용자 디렉터리를 지정할 수 있습니다.
 
 ```bash
+GPU_LAB_INSTALL_DIR="$HOME/.local/bin" bash gpu-lab-install.sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-강의 명령은 `gpu-lab` 기준으로 설명합니다. `gpu`도 같은 CLI의 짧은 이름으로 함께 제공됩니다.
+강의 명령은 `gpu` 기준으로 설명합니다. `gpu-lab`은 같은 CLI의 호환 alias입니다.
 
 ### Windows PowerShell
 
@@ -298,6 +282,8 @@ Exporter 장애:
 kubectl --context gpu-lab get pods -n gpu-lab-system -l app.kubernetes.io/name=dcgm-exporter
 kubectl --context gpu-lab get servicemonitor -n gpu-lab-monitoring
 gpu-lab metrics --query 'sum(up{service="dcgm-exporter"})'
+gpu-lab nvidia-smi
+nvidia-smi --query-gpu=temperature.gpu,memory.used,utilization.gpu --format=csv,noheader,nounits
 ```
 
 현재 scenario 확인:
@@ -327,6 +313,6 @@ gpu-lab destroy
 - XID, ECC, PCIe replay는 synthetic metric입니다.
 - gpu_lab_* metric은 실제 DCGM metric과 의미가 완전히 같지 않습니다.
 - gpu-lab scenario reset은 실제 GPU reset, node drain, reboot를 수행하지 않습니다.
-- 실제 환경에서는 nvidia-smi, dcgmi, kernel log, GPU Operator 상태를 함께 확인해야 합니다.
+- 제공되는 `nvidia-smi`는 GPU Lab synthetic compatibility layer입니다. 실제 환경에서는 NVIDIA가 제공하는 `nvidia-smi`, `dcgmi`, kernel log, GPU Operator 상태를 함께 확인해야 합니다.
 
 이 프로젝트의 목표는 실제 GPU 장애를 발생시키는 것이 아니라, GPU Infrastructure 장애를 관찰하고 조사하는 운영 절차를 반복 연습하는 것입니다.

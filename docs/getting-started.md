@@ -19,6 +19,15 @@ gpu doctor
 
 이 문서의 `go run ./cmd/gpu-lab ...` 예시는 저장소를 clone해 소스에서 실행하는 개발자용 경로입니다. release binary를 설치했다면 `go run ./cmd/gpu-lab` 부분을 `gpu`로 바꿉니다. `gpu-lab`은 이전 버전 호환 alias입니다.
 
+수강생용 최초 설치는 다음 스크립트를 사용합니다. Docker Desktop 또는 Docker Engine은 먼저 설치하고 실행해야 합니다.
+
+```bash
+curl --fail --silent --show-error --location \
+  --output gpu-lab-install.sh \
+  https://raw.githubusercontent.com/yhkim8046/gpu_labs/main/scripts/install.sh
+bash gpu-lab-install.sh
+```
+
 먼저 설치 상태를 확인합니다.
 
 ```bash
@@ -151,10 +160,15 @@ gpu metrics --query 'max(gpu_lab_gpu_ecc_dbe_total)'
 gpu metrics --query 'max(gpu_lab_gpu_power_violation_total)'
 gpu metrics --query 'max(gpu_lab_gpu_pcie_replay_total)'
 gpu metrics --query 'max(gpu_lab_node_gpu_capacity - gpu_lab_node_gpu_allocatable)'
+gpu nvidia-smi
+nvidia-smi --list-gpus
+nvidia-smi --query-gpu=temperature.gpu,memory.used,utilization.gpu --format=csv,noheader,nounits
 kubectl --context gpu-lab get nodes
 kubectl --context gpu-lab get pods -A
 kubectl --context gpu-lab describe pod -n gpu-lab-demo gpu-lab-scheduling-failure
 ```
+
+`nvidia-smi`는 GPU Lab release에 포함된 호환 명령입니다. 실제 NVIDIA driver나 CUDA를 호출하지 않고 Prometheus의 synthetic metric을 표시하므로, 실제 장비의 `nvidia-smi`와 동일한 성능·device file·driver 정보는 제공하지 않습니다.
 
 Grafana 접근 방식은 설치된 Helm chart의 Service를 확인합니다.
 
