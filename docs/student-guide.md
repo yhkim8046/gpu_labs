@@ -4,7 +4,67 @@ GPU가 없는 노트북에서 Kubernetes GPU Infrastructure의 설치, 모니터
 
 gpu-lab은 실제 GPU나 CUDA를 제공하지 않습니다. Kubernetes GPU scheduling, Device Plugin, DCGM Exporter, Prometheus, Grafana의 운영 흐름을 교육용으로 재현합니다.
 
-## 1. 사전 준비
+## 1. CLI 설치
+
+수강생은 Go를 설치하거나 소스 저장소를 clone하지 않고 공식 설치 스크립트로 CLI를 설치할 수 있습니다. 설치 스크립트가 최신 Release의 OS·CPU별 archive를 선택하고 checksum을 확인한 뒤 `gpu`, `gpu-lab`, `nvidia-smi`를 설치합니다.
+
+Release 페이지: <https://github.com/yhkim8046/gpu_labs/releases>
+
+### macOS / Linux
+
+Docker Desktop 또는 Docker Engine을 먼저 설치하고 실행한 뒤, 아래 설치 스크립트를 실행합니다. macOS, Linux, WSL2에서 현재 OS와 architecture를 자동으로 감지합니다.
+
+```bash
+curl --fail --silent --show-error --location \
+  --output gpu-lab-install.sh \
+  https://raw.githubusercontent.com/yhkim8046/gpu_labs/main/scripts/install.sh
+bash gpu-lab-install.sh
+```
+
+기본 설치 위치는 `/usr/local/bin`입니다. 권한이 없으면 다음처럼 사용자 디렉터리를 지정할 수 있습니다.
+
+```bash
+GPU_LAB_INSTALL_DIR="$HOME/.local/bin" bash gpu-lab-install.sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+강의 명령은 `gpu` 기준으로 설명합니다. `gpu-lab`은 같은 CLI의 호환 alias입니다.
+
+### Windows PowerShell
+
+Windows native 환경에서는 `.zip` asset을 사용합니다. 아래는 일반적인 Intel/AMD 64-bit Windows 예시이며, ARM Windows는 `amd64`를 `arm64`로 바꿉니다.
+
+```powershell
+$Version = "0.2.0"
+$Arch = "amd64"
+$Asset = "gpu-lab_${Version}_windows_${Arch}.zip"
+$BaseUrl = "https://github.com/yhkim8046/gpu_labs/releases/download/v$Version"
+
+Invoke-WebRequest "$BaseUrl/$Asset" -OutFile $Asset
+Invoke-WebRequest "$BaseUrl/checksums.txt" -OutFile checksums.txt
+$Expected = (Select-String -Path checksums.txt -Pattern $Asset).Line.Split()[0].ToLower()
+$Actual = (Get-FileHash $Asset -Algorithm SHA256).Hash.ToLower()
+if ($Expected -ne $Actual) { throw "checksum verification failed" }
+
+Expand-Archive $Asset -DestinationPath .\gpu-lab-$Version -Force
+New-Item -ItemType Directory -Force -Path "$HOME\bin" | Out-Null
+Copy-Item ".\gpu-lab-$Version\gpu-lab.exe" "$HOME\bin\gpu-lab.exe" -Force
+Copy-Item ".\gpu-lab-$Version\gpu.exe" "$HOME\bin\gpu.exe" -Force
+
+$env:Path += ";$HOME\bin"
+& "$HOME\bin\gpu-lab.exe" version
+```
+
+새 PowerShell 창에서도 사용하려면 `$HOME\bin`을 Windows 사용자 `PATH`에 추가합니다.
+
+설치가 끝나면 의존성을 확인합니다.
+
+```bash
+gpu-lab version
+gpu-lab doctor
+```
+
+## 2. 사전 준비
 
 Linux, macOS, Windows + WSL2에서 사용할 수 있습니다.
 
@@ -23,7 +83,7 @@ gpu-lab 명령이 없다면 강의에서 안내한 GitHub Release binary를 설�
 go run ./cmd/gpu-lab doctor
 ```
 
-## 2. 클러스터 생성
+## 3. 클러스터 생성
 
 gpu-lab create는 kind 클러스터와 runtime image만 준비합니다. GPU 구성요소는 수강생이 Helm으로 직접 설치합니다.
 
@@ -42,7 +102,7 @@ gpu-lab-worker2      # gpu-node-02
 gpu-lab-worker3      # gpu-node-03
 ```
 
-## 3. GPU Infrastructure 설치
+## 4. GPU Infrastructure 설치
 
 ```bash
 gpu-lab helm catalog
@@ -67,7 +127,7 @@ gpu-lab helm repo update
 gpu-lab helm search repo prometheus-community
 ```
 
-## 4. Grafana와 Prometheus 접속
+## 5. Grafana와 Prometheus 접속
 
 Grafana:
 
@@ -102,7 +162,7 @@ gpu-lab metrics --query 'max(gpu_lab_gpu_ecc_dbe_total)'
 gpu-lab metrics --query 'max(gpu_lab_node_gpu_capacity - gpu_lab_node_gpu_allocatable)'
 ```
 
-## 5. 공통 실습 흐름
+## 6. 공통 실습 흐름
 
 ```bash
 gpu-lab scenario list
@@ -127,7 +187,7 @@ kubectl --context gpu-lab get nodes -o wide
 gpu-lab scenario reset
 ```
 
-## 6. 제공되는 시나리오
+## 7. 제공되는 시나리오
 
 | Scenario | 실습 내용 | 핵심 관찰 포인트 |
 |---|---|---|
@@ -148,7 +208,7 @@ gpu-lab scenario reset
 | exporter-down | 관측 계층 장애 | Prometheus target down |
 | gpu-idle | 기존 idle 실습 | 호환용 alias |
 
-## 7. 핵심 5개 시나리오
+## 8. 핵심 5개 시나리오
 
 ### ECC Double-bit
 
@@ -206,7 +266,7 @@ kubectl --context gpu-lab get pod gpu-lab-capacity-mismatch-workload -n gpu-lab-
 
 Synthetic telemetry는 capacity 8, allocatable 4를 보고하지만 실제 scheduler는 workload를 배치합니다. 이 시나리오는 device-plugin registration, kubelet Node status, scheduler 결과를 대조하는 연습입니다.
 
-## 8. 장애 조사 명령
+## 9. 장애 조사 명령
 
 Pending Pod:
 
@@ -222,6 +282,8 @@ Exporter 장애:
 kubectl --context gpu-lab get pods -n gpu-lab-system -l app.kubernetes.io/name=dcgm-exporter
 kubectl --context gpu-lab get servicemonitor -n gpu-lab-monitoring
 gpu-lab metrics --query 'sum(up{service="dcgm-exporter"})'
+gpu-lab nvidia-smi
+nvidia-smi --query-gpu=temperature.gpu,memory.used,utilization.gpu --format=csv,noheader,nounits
 ```
 
 현재 scenario 확인:
@@ -231,7 +293,7 @@ kubectl --context gpu-lab get configmap gpu-lab-scenario -n gpu-lab-system -o ya
 gpu-lab scenario inspect <scenario>
 ```
 
-## 9. 종료
+## 10. 종료
 
 시나리오만 초기화:
 
@@ -245,12 +307,12 @@ gpu-lab scenario reset
 gpu-lab destroy
 ```
 
-## 10. 반드시 기억할 한계
+## 11. 반드시 기억할 한계
 
 - 실제 NVIDIA GPU와 CUDA kernel을 사용하지 않습니다.
 - XID, ECC, PCIe replay는 synthetic metric입니다.
 - gpu_lab_* metric은 실제 DCGM metric과 의미가 완전히 같지 않습니다.
 - gpu-lab scenario reset은 실제 GPU reset, node drain, reboot를 수행하지 않습니다.
-- 실제 환경에서는 nvidia-smi, dcgmi, kernel log, GPU Operator 상태를 함께 확인해야 합니다.
+- 제공되는 `nvidia-smi`는 GPU Lab synthetic compatibility layer입니다. 실제 환경에서는 NVIDIA가 제공하는 `nvidia-smi`, `dcgmi`, kernel log, GPU Operator 상태를 함께 확인해야 합니다.
 
 이 프로젝트의 목표는 실제 GPU 장애를 발생시키는 것이 아니라, GPU Infrastructure 장애를 관찰하고 조사하는 운영 절차를 반복 연습하는 것입니다.

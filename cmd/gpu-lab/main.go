@@ -15,6 +15,7 @@ import (
 
 	"github.com/gpu-lab/gpu-lab/internal/cluster"
 	"github.com/gpu-lab/gpu-lab/internal/monitoring"
+	"github.com/gpu-lab/gpu-lab/internal/nvidiasmi"
 	"github.com/gpu-lab/gpu-lab/internal/runner"
 	"github.com/gpu-lab/gpu-lab/internal/scenario"
 	"github.com/gpu-lab/gpu-lab/internal/verification"
@@ -57,6 +58,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return dashboardCommand(ctx, r, args[1:], stdout)
 	case "metrics":
 		return metricsCommand(ctx, r, args[1:], stdout)
+	case "nvidia-smi":
+		return nvidiasmi.Run(ctx, r, args[1:], stdout)
 	case "verify":
 		return verifyScenario(ctx, r, args[1:], stdout)
 	case "context":
@@ -696,6 +699,8 @@ Usage:
   gpu status
   gpu dashboard [--port <port>]
   gpu metrics [--query <PromQL>] [--json]
+  gpu nvidia-smi [--list-gpus]
+  gpu nvidia-smi --query-gpu=<fields> --format=csv[,noheader][,nounits]
   gpu verify <scenario>
   gpu context list
   gpu context setup

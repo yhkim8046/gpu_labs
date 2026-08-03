@@ -47,6 +47,8 @@ spec:
               value: {{ .Values.gpuCount | quote }}
             - name: LISTEN_ADDRESS
               value: ":{{ .Values.service.port }}"
+            - name: GPU_LAB_STATE_URL
+              value: "http://127.0.0.1:{{ .Values.service.port }}/api/v1/state"
           readinessProbe:
             httpGet:
               path: /readyz

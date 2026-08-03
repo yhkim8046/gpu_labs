@@ -1,10 +1,21 @@
 # Release Binary
 
-GitHub Release에는 수강생용 `gpu`와 호환용 `gpu-lab` CLI의 macOS, Linux, Windows 바이너리가 함께 업로드됩니다. GPU Lab 내부의 `nvidia-device-plugin`과 `dcgm-exporter`는 `gpu helm install`이 실제 Helm release로 배포하는 교육용 runtime image입니다.
+GitHub Release에는 수강생용 `gpu`, 호환용 `gpu-lab`, 그리고 synthetic telemetry를 보여주는 `nvidia-smi` 호환 명령의 macOS, Linux, Windows 바이너리가 함께 업로드됩니다. GPU Lab 내부의 `nvidia-device-plugin`과 `dcgm-exporter`는 `gpu helm install`이 실제 Helm release로 배포하는 교육용 runtime image입니다.
 
 ## 설치
 
 Release tag가 `v0.2.0`이면 archive 안의 버전 문자열은 `0.2.0`입니다. 자신의 OS와 CPU architecture에 맞는 asset을 선택합니다.
+
+수강생에게는 수동 archive 선택보다 공식 설치 스크립트를 권장합니다. 스크립트가 최신 Release, OS, CPU architecture를 자동으로 선택하고 checksum 및 필수 바이너리를 검증합니다.
+
+```bash
+curl --fail --silent --show-error --location \
+  --output gpu-lab-install.sh \
+  https://raw.githubusercontent.com/yhkim8046/gpu_labs/main/scripts/install.sh
+bash gpu-lab-install.sh
+```
+
+기본 설치 위치는 `/usr/local/bin`입니다. 권한이 없으면 `GPU_LAB_INSTALL_DIR="$HOME/.local/bin"`을 지정할 수 있습니다.
 
 | 환경 | OS | architecture | archive |
 | --- | --- | --- | --- |
@@ -31,6 +42,7 @@ grep "$ASSET" checksums.txt | shasum -a 256 -c -
 tar -xzf "$ASSET"
 mkdir -p "$HOME/.local/bin"
 install -m 0755 gpu "$HOME/.local/bin/gpu"
+install -m 0755 nvidia-smi "$HOME/.local/bin/nvidia-smi"
 export PATH="$HOME/.local/bin:$PATH"
 
 gpu version
@@ -61,6 +73,7 @@ if ($Expected -ne $Actual) { throw "checksum verification failed" }
 Expand-Archive $Asset -DestinationPath .\gpu-lab-$Version -Force
 New-Item -ItemType Directory -Force -Path "$HOME\bin" | Out-Null
 Copy-Item ".\gpu-lab-$Version\gpu.exe" "$HOME\bin\gpu.exe" -Force
+Copy-Item ".\gpu-lab-$Version\nvidia-smi.exe" "$HOME\bin\nvidia-smi.exe" -Force
 
 & "$HOME\bin\gpu.exe" version
 ```
@@ -99,13 +112,13 @@ CLI 바이너리만 제거하려면 다음을 실행합니다. cluster와 kubeco
 
 ```bash
 gpu destroy  # cluster까지 제거할 때만 먼저 실행
-rm -f "$HOME/.local/bin/gpu" "$HOME/.local/bin/gpu-lab"
+rm -f "$HOME/.local/bin/gpu" "$HOME/.local/bin/gpu-lab" "$HOME/.local/bin/nvidia-smi"
 ```
 
 Windows PowerShell에서는 다음을 실행합니다.
 
 ```powershell
-Remove-Item "$HOME\bin\gpu.exe"
+Remove-Item "$HOME\bin\gpu.exe", "$HOME\bin\nvidia-smi.exe"
 ```
 
 ## Release 생성

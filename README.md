@@ -77,12 +77,14 @@ gpu helm list --all-namespaces
 강의 수강생은 Go toolchain 없이 [Release & Installation](docs/release.md)의 release binary를 설치할 수 있습니다. 기본 명령은 `gpu`이며, 기존 `gpu-lab` 이름도 호환용으로 함께 제공합니다.
 
 ```bash
+curl --fail --silent --show-error --location \
+  --output gpu-lab-install.sh \
+  https://raw.githubusercontent.com/yhkim8046/gpu_labs/main/scripts/install.sh
+bash gpu-lab-install.sh
+
 gpu version
 gpu doctor
-gpu create
-gpu helm install nvidia-device-plugin
-gpu helm install dcgm-exporter
-gpu helm install monitoring
+gpu create --all
 ```
 
 Git tag `v1.0.0`을 push하면 GitHub Actions가 GHCR에 다음 multi-arch runtime image를 publish합니다.
@@ -107,7 +109,18 @@ go run ./cmd/gpu-lab scenario reset
 go run ./cmd/gpu-lab helm repo list
 go run ./cmd/gpu-lab context list
 go run ./cmd/gpu-lab context use gpu-lab
+go run ./cmd/gpu-lab nvidia-smi
 ```
+
+GPU Lab는 synthetic telemetry를 NVIDIA-SMI 형태로 확인할 수 있는 호환 명령도 제공합니다.
+
+```bash
+gpu nvidia-smi
+nvidia-smi --list-gpus
+nvidia-smi --query-gpu=temperature.gpu,memory.used,utilization.gpu --format=csv,noheader,nounits
+```
+
+Release archive의 `nvidia-smi`를 PATH에 설치하면 `nvidia-smi`를 직접 입력할 수 있습니다. 이 명령은 실제 NVIDIA driver/CUDA를 사용하지 않고, 설치된 Prometheus의 `gpu_lab_*` metric을 읽습니다.
 
 실제 cluster lifecycle을 실행하려면 Docker, kind, kubectl, Helm을 설치한 뒤 저장소 루트에서 다음을 실행합니다.
 
