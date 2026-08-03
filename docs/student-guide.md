@@ -284,7 +284,10 @@ kubectl --context gpu-lab get servicemonitor -n gpu-lab-monitoring
 gpu-lab metrics --query 'sum(up{service="dcgm-exporter"})'
 gpu-lab nvidia-smi
 nvidia-smi --query-gpu=temperature.gpu,memory.used,utilization.gpu --format=csv,noheader,nounits
+gpu-lab nvidia-smi --node gpu-lab-worker
 ```
+
+기본 `nvidia-smi` 출력은 synthetic 노드별로 나뉩니다. `--node <node-name>`을 사용하면 특정 노드의 GPU만 확인할 수 있습니다. 실제 노드에 SSH로 접속하는 대신 Prometheus metric을 기반으로 NVIDIA-SMI 형식의 결과를 제공합니다.
 
 현재 scenario 확인:
 

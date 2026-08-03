@@ -78,6 +78,48 @@ func TestRunSummaryFromPrometheusViaKubectl(t *testing.T) {
 	}
 }
 
+func TestRunSummaryGroupsSyntheticNodes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture uses POSIX syntax")
+	}
+	t.Setenv("GPU_LAB_STATE_URL", "")
+	dir := t.TempDir()
+	kubectl := filepath.Join(dir, "kubectl")
+	response := `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"__name__":"gpu_lab_gpu_utilization_percent","node":"gpu-node-01","gpu":"gpu-node-01-00"},"value":["0","15"]},{"metric":{"__name__":"gpu_lab_gpu_utilization_percent","node":"gpu-node-02","gpu":"gpu-node-02-00"},"value":["0","25"]}]}}`
+	script := "#!/bin/sh\nprintf '%s\\n' '" + response + "'\n"
+	if err := os.WriteFile(kubectl, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var stdout strings.Builder
+	if err := Run(context.Background(), runner.New(io.Discard, io.Discard), nil, &stdout); err != nil {
+		t.Fatal(err)
+	}
+	output := stdout.String()
+	if got := strings.Count(output, "GPU Lab node:"); got != 2 {
+		t.Fatalf("node block count = %d, want 2; output = %q", got, output)
+	}
+	for _, node := range []string{"gpu-node-01", "gpu-node-02"} {
+		if !strings.Contains(output, "GPU Lab node: "+node) {
+			t.Fatalf("output = %q, missing node %q", output, node)
+		}
+	}
+}
+
+func TestParseArgsNodeSelector(t *testing.T) {
+	parsed, err := parseArgs([]string{"--node", "gpu-node-02", "--list-gpus"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.node != "gpu-node-02" || !parsed.list {
+		t.Fatalf("parsed = %#v, want node selector and list flag", parsed)
+	}
+	if _, err := parseArgs([]string{"--node="}); err == nil {
+		t.Fatal("parseArgs() accepted an empty node selector")
+	}
+}
+
 func TestParseArgsRejectsUnsupportedField(t *testing.T) {
 	if _, err := parseArgs([]string{"--query-gpu=fan.speed"}); err == nil {
 		t.Fatal("parseArgs() succeeded for unsupported field")

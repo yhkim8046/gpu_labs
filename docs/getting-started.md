@@ -165,10 +165,13 @@ gpu metrics --query 'max(gpu_lab_node_gpu_capacity - gpu_lab_node_gpu_allocatabl
 gpu nvidia-smi
 nvidia-smi --list-gpus
 nvidia-smi --query-gpu=temperature.gpu,memory.used,utilization.gpu --format=csv,noheader,nounits
+gpu nvidia-smi --node gpu-lab-worker
 kubectl --context gpu-lab get nodes
 kubectl --context gpu-lab get pods -A
 kubectl --context gpu-lab describe pod -n gpu-lab-demo gpu-lab-scheduling-failure
 ```
+
+`gpu nvidia-smi`는 synthetic 클러스터의 노드마다 실제 `nvidia-smi`에 가까운 별도 블록을 출력합니다. 특정 노드만 확인하려면 `--node <node-name>`을 지정하면 됩니다. 이 명령은 노드에 SSH로 접속하지 않고 Prometheus의 `gpu_lab_*` metric을 조회합니다.
 
 `nvidia-smi`는 GPU Lab release에 포함된 호환 명령입니다. 실제 NVIDIA driver나 CUDA를 호출하지 않고 Prometheus의 synthetic metric을 표시하므로, 실제 장비의 `nvidia-smi`와 동일한 성능·device file·driver 정보는 제공하지 않습니다.
 
