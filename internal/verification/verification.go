@@ -139,6 +139,40 @@ func (v Verifier) Verify(ctx context.Context, selected scenario.Scenario) Report
 			v.queryCheck(ctx, "PCIe replay", "max(gpu_lab_gpu_pcie_replay_total)", func(value float64) bool { return value > 0 }, "PCIe replay counter is non-zero"),
 			v.queryCheck(ctx, "GPU health", "min(gpu_lab_gpu_health)", func(value float64) bool { return value == 1 }, "GPU health remains healthy while the link signal is investigated"),
 		)
+	case "ib-link-down":
+		node := "gpu-lab-worker2"
+		report.Checks = append(report.Checks,
+			v.queryCheck(ctx, "IB port up", fabricMetric("gpu_lab_ib_port_up", node), func(value float64) bool { return value == 0 }, "gpu-node-02 mlx5_0 port 1 is down"),
+			v.queryCheck(ctx, "IB port state", fabricStateMetric(node, "DOWN", "DISABLED"), func(value float64) bool { return value == 1 }, "port state is DOWN/DISABLED"),
+			v.queryCheck(ctx, "IB link downed", fabricMetric("gpu_lab_ib_link_downed_total", node), func(value float64) bool { return value > 0 }, "link-downed counter is non-zero"),
+			v.queryCheck(ctx, "fabric delay", fabricMetric("gpu_lab_fabric_delay_seconds", node), func(value float64) bool { return value == 0 }, "link-down contract carries zero training delay"),
+		)
+	case "ib-rate-degraded":
+		node := "gpu-lab-worker3"
+		report.Checks = append(report.Checks,
+			v.queryCheck(ctx, "IB link rate", fabricMetric("gpu_lab_ib_link_rate_gbps", node), func(value float64) bool { return value == 25 }, "gpu-node-03 link rate is 25 Gbps"),
+			v.queryCheck(ctx, "fabric delay", fabricMetric("gpu_lab_fabric_delay_seconds", node), func(value float64) bool { return value >= 1.5 }, "fabric delay is at least 1.5 seconds"),
+		)
+	case "ib-symbol-errors":
+		node := "gpu-lab-worker"
+		report.Checks = append(report.Checks,
+			v.queryCheck(ctx, "IB symbol errors", fabricMetric("gpu_lab_ib_symbol_errors_total", node), func(value float64) bool { return value > 0 }, "symbol-error counter is non-zero"),
+			v.queryCheck(ctx, "IB link recovery", fabricMetric("gpu_lab_ib_link_error_recovery_total", node), func(value float64) bool { return value > 0 }, "link-error-recovery counter is non-zero"),
+		)
+	case "rdma-retry-storm":
+		node := "gpu-lab-worker2"
+		report.Checks = append(report.Checks,
+			v.queryCheck(ctx, "RDMA retries", fabricMetric("gpu_lab_rdma_retries_total", node), func(value float64) bool { return value > 0 }, "RDMA retry counter is non-zero"),
+			v.queryCheck(ctx, "RDMA timeouts", fabricMetric("gpu_lab_rdma_timeouts_total", node), func(value float64) bool { return value > 0 }, "RDMA timeout counter is non-zero"),
+			v.queryCheck(ctx, "fabric delay", fabricMetric("gpu_lab_fabric_delay_seconds", node), func(value float64) bool { return value >= 1 }, "fabric delay is at least 1 second"),
+		)
+	case "ib-congestion":
+		node := "gpu-lab-worker3"
+		report.Checks = append(report.Checks,
+			v.queryCheck(ctx, "IB transmit wait", fabricMetric("gpu_lab_ib_xmit_wait_total", node), func(value float64) bool { return value > 0 }, "transmit-wait counter is non-zero"),
+			v.queryCheck(ctx, "IB transmit discards", fabricMetric("gpu_lab_ib_xmit_discards_total", node), func(value float64) bool { return value > 0 }, "transmit-discard counter is non-zero"),
+			v.queryCheck(ctx, "fabric delay", fabricMetric("gpu_lab_fabric_delay_seconds", node), func(value float64) bool { return value >= 0.8 }, "fabric delay is at least 0.8 seconds"),
+		)
 	case "gpu-idle":
 		report.Checks = append(report.Checks,
 			v.podPhaseCheck(ctx, "gpu-lab-idle-workload", "Running"),
@@ -357,4 +391,12 @@ func decodePrometheusValue(data []byte) (float64, error) {
 
 func formatFloat(value float64) string {
 	return strconv.FormatFloat(value, 'f', -1, 64)
+}
+
+func fabricMetric(metric, node string) string {
+	return fmt.Sprintf(`max(%s{node="%s",hca="mlx5_0",port="1",link_layer="InfiniBand"})`, metric, node)
+}
+
+func fabricStateMetric(node, state, physicalState string) string {
+	return fmt.Sprintf(`max(gpu_lab_ib_port_state{node="%s",hca="mlx5_0",port="1",link_layer="InfiniBand",state="%s",physical_state="%s"})`, node, state, physicalState)
 }

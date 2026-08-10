@@ -1,0 +1,145 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: gpu-lab-fabric-alerts
+  namespace: gpu-lab-monitoring
+  labels:
+    app.kubernetes.io/name: gpu-lab-fabric-alerts
+    app.kubernetes.io/part-of: gpu-lab
+    app.kubernetes.io/managed-by: gpu-lab
+spec:
+  groups:
+    - name: gpu-lab-fabric.rules
+      rules:
+        - alert: GPULabIBPortDown
+          expr: gpu_lab_ib_port_up{node=~".+",hca=~".+",port=~".+",link_layer=~".+"} == 0
+          for: 30s
+          labels:
+            severity: critical
+            category: availability
+            component: infiniband
+          annotations:
+            summary: "IB 포트 {{ $labels.node }}/{{ $labels.hca }}:{{ $labels.port }} down"
+            description: "{{ $labels.link_layer }} 포트가 30초 이상 up 상태가 아닙니다. 해당 rank의 집단 통신이 멈추거나 우회 경로로 전환될 수 있습니다."
+            runbook: "ibstat, ibstatus, ibv_devinfo -v로 포트와 physical state를 확인하고, docs/ib-fabric.md의 ib-link-down 조사 순서를 따르세요."
+        - alert: GPULabIBRateDegraded
+          expr: gpu_lab_ib_link_rate_gbps{node=~".+",hca=~".+",port=~".+",link_layer=~".+"} < 100
+          for: 1m
+          labels:
+            severity: warning
+            category: performance
+            component: infiniband
+          annotations:
+            summary: "IB negotiated rate 저하: {{ $labels.node }}/{{ $labels.hca }}:{{ $labels.port }}"
+            description: "협상된 link rate가 {{ $value }} Gbps로 100 Gbps 미만입니다. 연결은 살아 있어도 AllReduce가 느려질 수 있습니다."
+            runbook: "ibstat, ibstatus, ibv_devinfo -v와 fabric dashboard의 rate·training delay를 비교하고, synthetic 실습이면 ib-rate-degraded를 reset하세요. 실제 장비는 mlxlink도 함께 확인하세요."
+        - alert: GPULabIBSymbolErrorsIncreasing
+          expr: increase(gpu_lab_ib_symbol_errors_total{node=~".+",hca=~".+",port=~".+",link_layer=~".+"}[5m]) > 0
+          for: 30s
+          labels:
+            severity: warning
+            category: errors
+            component: infiniband
+          annotations:
+            summary: "IB symbol error 증가: {{ $labels.node }}/{{ $labels.hca }}:{{ $labels.port }}"
+            description: "최근 5분 동안 symbol error counter가 증가했습니다. 케이블·광 모듈·포트 품질 또는 물리 링크 불안정 신호로 해석합니다."
+            runbook: "symbol error와 link recovery를 함께 보고 포트·노드 범위를 좁히세요. 실제 장비에서는 perfquery와 mlxlink를 사용하고, 이 Lab에서는 ib-symbol-errors를 reset하세요."
+        - alert: GPULabIBLinkRecoveryIncreasing
+          expr: increase(gpu_lab_ib_link_error_recovery_total{node=~".+",hca=~".+",port=~".+",link_layer=~".+"}[5m]) > 0
+          for: 30s
+          labels:
+            severity: warning
+            category: errors
+            component: infiniband
+          annotations:
+            summary: "IB link recovery 증가: {{ $labels.node }}/{{ $labels.hca }}:{{ $labels.port }}"
+            description: "최근 5분 동안 link error recovery counter가 증가했습니다. 링크가 복구되었더라도 재발 가능성을 조사해야 합니다."
+            runbook: "symbol error, link down, negotiated rate를 같은 포트 필터로 비교하고, 반복되면 포트 격리 절차를 적용하세요."
+        - alert: GPULabIBLinkDownCounterIncreasing
+          expr: increase(gpu_lab_ib_link_downed_total{node=~".+",hca=~".+",port=~".+",link_layer=~".+"}[5m]) > 0
+          for: 30s
+          labels:
+            severity: critical
+            category: availability
+            component: infiniband
+          annotations:
+            summary: "IB link down counter 증가: {{ $labels.node }}/{{ $labels.hca }}:{{ $labels.port }}"
+            description: "최근 5분 동안 link down 이벤트가 기록되었습니다. 현재 port_up이 1이어도 일시적인 fabric 단절이 있었을 수 있습니다."
+            runbook: "이벤트 시각의 training step·AllReduce latency·RDMA timeout을 상관 분석하고, 실제 장비에서는 포트와 케이블 교체 이력을 확인하세요."
+        - alert: GPULabIBXmitCongestion
+          expr: (increase(gpu_lab_ib_xmit_discards_total{node=~".+",hca=~".+",port=~".+",link_layer=~".+"}[5m]) > 0) or (increase(gpu_lab_ib_xmit_wait_total{node=~".+",hca=~".+",port=~".+",link_layer=~".+"}[5m]) > 0)
+          for: 1m
+          labels:
+            severity: warning
+            category: congestion
+            component: infiniband
+          annotations:
+            summary: "IB transmit congestion: {{ $labels.node }}/{{ $labels.hca }}:{{ $labels.port }}"
+            description: "최근 5분 동안 xmit wait 또는 discard counter가 증가했습니다. 송신 큐 압박과 집단 통신 지연을 확인하세요."
+            runbook: "xmit wait/discards와 fabric delay·AllReduce latency를 비교하세요. 실습에서는 ib-congestion을 reset하고, 실제 장비에서는 perfquery와 switch counter를 확인하세요."
+        - alert: GPULabRDMARetryStorm
+          expr: increase(gpu_lab_rdma_retries_total{node=~".+",hca=~".+",port=~".+",link_layer=~".+"}[5m]) > 10
+          for: 1m
+          labels:
+            severity: warning
+            category: reliability
+            component: rdma
+          annotations:
+            summary: "RDMA retry storm: {{ $labels.node }}/{{ $labels.hca }}:{{ $labels.port }}"
+            description: "최근 5분 동안 RDMA retry가 {{ $value }} 이상 증가했습니다. 작업이 완료되더라도 fabric 품질 저하로 처리량이 떨어질 수 있습니다."
+            runbook: "retry와 timeout, training fabric retries, AllReduce latency를 함께 확인하세요. 실제 장비에서는 rdma statistic show와 NIC·switch counter를 비교하세요."
+        - alert: GPULabRDMATimeoutsIncreasing
+          expr: increase(gpu_lab_rdma_timeouts_total{node=~".+",hca=~".+",port=~".+",link_layer=~".+"}[5m]) > 0
+          for: 30s
+          labels:
+            severity: critical
+            category: reliability
+            component: rdma
+          annotations:
+            summary: "RDMA timeout 증가: {{ $labels.node }}/{{ $labels.hca }}:{{ $labels.port }}"
+            description: "최근 5분 동안 RDMA timeout이 발생했습니다. rendezvous나 AllReduce가 재시도·정지할 수 있습니다."
+            runbook: "포트 up/rate, link down, retry를 먼저 확인한 뒤 affected rank 로그와 training fabric errors를 조사하세요."
+        - alert: GPULabTrainingFabricFault
+          expr: max by (mode, namespace, pod, rank) (gpu_lab_training_fabric_fault_active{namespace="gpu-lab-demo"}) > 0
+          for: 15s
+          labels:
+            severity: warning
+            category: correlation
+            component: distributed-training
+          annotations:
+            summary: "분산학습 fabric fault 활성화: rank {{ $labels.rank }} ({{ $labels.mode }})"
+            description: "{{ $labels.pod }} rank {{ $labels.rank }}에 {{ $labels.mode }} fabric fault가 활성화되어 있습니다. 이는 synthetic 장애 주입 상태일 수 있습니다."
+            runbook: "fabric dashboard에서 원인 포트와 AllReduce/step을 비교하고, 실습 종료 후 gpu scenario reset 및 gpu training recover를 실행하세요."
+        - alert: GPULabTrainingFabricDelay
+          expr: max by (namespace, pod, rank) (gpu_lab_training_fabric_delay_seconds{namespace="gpu-lab-demo"}) > 0.5
+          for: 30s
+          labels:
+            severity: warning
+            category: correlation
+            component: distributed-training
+          annotations:
+            summary: "분산학습 fabric 지연 증가: rank {{ $labels.rank }}"
+            description: "{{ $labels.pod }} rank의 synthetic fabric delay가 {{ $value }}초를 넘었습니다. AllReduce latency와 step 진행을 함께 확인하세요."
+            runbook: "gpu_lab_training_allreduce_seconds와 gpu_lab_training_step을 같은 시간 범위로 비교하고, docs/ib-fabric.md의 상관 분석 순서를 따르세요."
+        - alert: GPULabTrainingFabricErrors
+          expr: increase(gpu_lab_training_fabric_errors_total{namespace="gpu-lab-demo"}[5m]) > 0
+          for: 30s
+          labels:
+            severity: critical
+            category: correlation
+            component: distributed-training
+          annotations:
+            summary: "분산학습 fabric 오류 증가"
+            description: "최근 5분 동안 synthetic fabric fault로 인한 training communication error가 증가했습니다."
+            runbook: "affected rank 로그와 RDMA timeout/link down을 함께 조사하고, checkpoint 상태를 확인한 뒤 recover하세요."
+        - alert: GPULabTrainingFabricRetries
+          expr: increase(gpu_lab_training_fabric_retries_total{namespace="gpu-lab-demo"}[5m]) > 0
+          for: 1m
+          labels:
+            severity: warning
+            category: correlation
+            component: distributed-training
+          annotations:
+            summary: "분산학습 fabric retry 증가"
+            description: "최근 5분 동안 training worker가 fabric 통신을 재시도했습니다. retry가 누적되면 AllReduce와 step 진행이 느려집니다."
+            runbook: "fabric retry와 RDMA retry를 같은 rank·node·port 범위로 비교하고, 장애 주입 실습이 아니라면 링크 품질을 우선 조사하세요."

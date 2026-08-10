@@ -88,6 +88,8 @@ spec:
               value: "8"
             - name: LISTEN_ADDRESS
               value: ":9400"
+            - name: GPU_LAB_STATE_URL
+              value: "http://127.0.0.1:9400/api/v1/state"
           readinessProbe:
             httpGet:
               path: /readyz

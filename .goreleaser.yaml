@@ -55,6 +55,48 @@ builds:
     goarch:
       - amd64
       - arm64
+  - id: ibstat
+    main: ./cmd/ibstat
+    binary: ibstat
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+  - id: ibstatus
+    main: ./cmd/ibstatus
+    binary: ibstatus
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+  - id: ibv-devinfo
+    main: ./cmd/ibv-devinfo
+    binary: ibv_devinfo
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
 
 archives:
   - id: default
@@ -62,6 +104,9 @@ archives:
       - gpu-lab
       - gpu
       - nvidia-smi
+      - ibstat
+      - ibstatus
+      - ibv-devinfo
     formats:
       - tar.gz
     format_overrides:

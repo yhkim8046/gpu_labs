@@ -285,6 +285,9 @@ gpu-lab metrics --query 'sum(up{service="dcgm-exporter"})'
 gpu-lab nvidia-smi
 nvidia-smi --query-gpu=temperature.gpu,memory.used,utilization.gpu --format=csv,noheader,nounits
 gpu-lab nvidia-smi --node gpu-lab-worker
+gpu-lab ibstat --node gpu-lab-worker
+gpu-lab ibstatus --node gpu-lab-worker
+gpu-lab ibv_devinfo --node gpu-lab-worker -v
 ```
 
 기본 `nvidia-smi` 출력은 synthetic 노드별로 나뉩니다. `--node <node-name>`을 사용하면 특정 노드의 GPU만 확인할 수 있습니다. 실제 노드에 SSH로 접속하는 대신 Prometheus metric을 기반으로 NVIDIA-SMI 형식의 결과를 제공합니다.
@@ -317,5 +320,6 @@ gpu-lab destroy
 - gpu_lab_* metric은 실제 DCGM metric과 의미가 완전히 같지 않습니다.
 - gpu-lab scenario reset은 실제 GPU reset, node drain, reboot를 수행하지 않습니다.
 - 제공되는 `nvidia-smi`는 GPU Lab synthetic compatibility layer입니다. 실제 환경에서는 NVIDIA가 제공하는 `nvidia-smi`, `dcgmi`, kernel log, GPU Operator 상태를 함께 확인해야 합니다.
+- 제공되는 `ibstat`, `ibstatus`, `ibv_devinfo`는 rdma-core 출력 호환 layer입니다. 실제 verbs device, UMAD, Subnet Manager 또는 `/dev/infiniband`가 생기는 것은 아닙니다.
 
 이 프로젝트의 목표는 실제 GPU 장애를 발생시키는 것이 아니라, GPU Infrastructure 장애를 관찰하고 조사하는 운영 절차를 반복 연습하는 것입니다.

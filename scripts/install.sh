@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 readonly DEFAULT_REPOSITORY="yhkim8046/gpu_labs"
-readonly REQUIRED_BINARIES=(gpu gpu-lab nvidia-smi)
+readonly REQUIRED_BINARIES=(gpu gpu-lab nvidia-smi ibstat ibstatus ibv_devinfo)
 
 die() {
   printf 'gpu-lab installer: %s\n' "$*" >&2

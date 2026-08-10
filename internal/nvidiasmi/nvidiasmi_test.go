@@ -55,6 +55,130 @@ func TestRunQueryCSV(t *testing.T) {
 	}
 }
 
+func TestRunQueryCommonFieldsCSV(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"node":"gpu-node-01","readings":[{"gpu":"gpu-node-01-00","utilization_percent":15,"memory_used_bytes":4294967296,"memory_total_bytes":17179869184,"temperature_celsius":45,"power_watts":80,"xid_code":0,"health":1,"ecc_dbe_total":0,"throttle_active":1,"allocated":0}]}`)
+	}))
+	defer server.Close()
+	t.Setenv("GPU_LAB_STATE_URL", server.URL)
+
+	var stdout strings.Builder
+	args := []string{
+		"--query-gpu=driver_version,pci.bus_id,serial,memory.free,utilization.memory,fan.speed,clocks.current.graphics,display_active,display_mode,persistence_mode,mig.mode.current",
+		"--format=csv,noheader,nounits",
+	}
+	if err := Run(context.Background(), runner.New(io.Discard, io.Discard), args, &stdout); err != nil {
+		t.Fatal(err)
+	}
+
+	identity := newGPU("gpu-node-01", "gpu-node-01-00")
+	want := strings.Join([]string{
+		syntheticDriverVersion,
+		"00000000:19:00.0",
+		serial(*identity),
+		"12288",
+		"25",
+		syntheticUnavailable,
+		syntheticUnavailable,
+		"Disabled",
+		"Disabled",
+		"Enabled",
+		"Disabled",
+	}, ", ")
+	if got := strings.TrimSpace(stdout.String()); got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
+func TestQueryValueDerivedMemorySemantics(t *testing.T) {
+	gpu := GPU{
+		Node:             "gpu-node-01",
+		ID:               "gpu-node-01-00",
+		MemoryUsedBytes:  4 * 1024 * 1024,
+		MemoryTotalBytes: 16 * 1024 * 1024,
+	}
+
+	tests := []struct {
+		name   string
+		field  string
+		noUnit bool
+		want   string
+	}{
+		{name: "free with units", field: "memory.free", want: "12 MiB"},
+		{name: "free without units", field: "memory.free", noUnit: true, want: "12"},
+		{name: "memory utilization with units", field: "utilization.memory", want: "25 %"},
+		{name: "memory utilization without units", field: "utilization.memory", noUnit: true, want: "25"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := queryValue(gpu, test.field, test.noUnit); got != test.want {
+				t.Fatalf("queryValue(%q, noUnits=%t) = %q, want %q", test.field, test.noUnit, got, test.want)
+			}
+		})
+	}
+
+	gpu.MemoryUsedBytes = 20 * 1024 * 1024
+	if got := queryValue(gpu, "memory.free", true); got != "0" {
+		t.Fatalf("saturated memory.free = %q, want 0", got)
+	}
+	if got := queryValue(gpu, "utilization.memory", true); got != "100" {
+		t.Fatalf("saturated utilization.memory = %q, want 100", got)
+	}
+
+	gpu.MemoryTotalBytes = 0
+	if got := queryValue(gpu, "memory.free", false); got != syntheticUnavailable {
+		t.Fatalf("missing memory.free = %q, want %q", got, syntheticUnavailable)
+	}
+	if got := queryValue(gpu, "utilization.memory", false); got != syntheticUnavailable {
+		t.Fatalf("missing utilization.memory = %q, want %q", got, syntheticUnavailable)
+	}
+}
+
+func TestSyntheticIdentityQueryFieldsAreStable(t *testing.T) {
+	first := newGPU("gpu-node-01", "gpu-node-01-00")
+	second := newGPU("gpu-node-01", "gpu-node-01-01")
+	second.Index = 1
+	otherNode := newGPU("gpu-node-02", "gpu-node-02-00")
+
+	if got, want := queryValue(*first, "driver_version", true), syntheticDriverVersion; got != want {
+		t.Fatalf("driver_version = %q, want %q", got, want)
+	}
+	if got, want := queryValue(*first, "pci.bus_id", true), "00000000:19:00.0"; got != want {
+		t.Fatalf("first pci.bus_id = %q, want %q", got, want)
+	}
+	if got, want := queryValue(*second, "pci.bus_id", true), "00000000:3B:00.0"; got != want {
+		t.Fatalf("second pci.bus_id = %q, want %q", got, want)
+	}
+
+	firstSerial := queryValue(*first, "serial", true)
+	if !strings.HasPrefix(firstSerial, syntheticSerialPrefix) {
+		t.Fatalf("serial = %q, want synthetic prefix %q", firstSerial, syntheticSerialPrefix)
+	}
+	if got := queryValue(*first, "serial", true); got != firstSerial {
+		t.Fatalf("serial changed between reads: first=%q second=%q", firstSerial, got)
+	}
+	if got := queryValue(*otherNode, "serial", true); got == firstSerial {
+		t.Fatalf("serial collision across synthetic GPUs: %q", got)
+	}
+}
+
+func TestQueryValueUnavailableAndHeadlessSemantics(t *testing.T) {
+	gpu := *newGPU("gpu-node-01", "gpu-node-01-00")
+	for _, field := range []string{"fan.speed", "clocks.current.graphics"} {
+		if got := queryValue(gpu, field, false); got != syntheticUnavailable {
+			t.Errorf("queryValue(%q) = %q, want %q", field, got, syntheticUnavailable)
+		}
+	}
+	for _, field := range []string{"display_active", "display_mode", "mig.mode.current"} {
+		if got := queryValue(gpu, field, false); got != "Disabled" {
+			t.Errorf("queryValue(%q) = %q, want Disabled", field, got)
+		}
+	}
+	if got := queryValue(gpu, "persistence_mode", false); got != "Enabled" {
+		t.Fatalf("persistence_mode = %q, want Enabled", got)
+	}
+}
+
 func TestRunSummaryFromPrometheusViaKubectl(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture uses POSIX syntax")
@@ -121,8 +245,18 @@ func TestParseArgsNodeSelector(t *testing.T) {
 }
 
 func TestParseArgsRejectsUnsupportedField(t *testing.T) {
-	if _, err := parseArgs([]string{"--query-gpu=fan.speed"}); err == nil {
+	if _, err := parseArgs([]string{"--query-gpu=temperature.memory"}); err == nil {
 		t.Fatal("parseArgs() succeeded for unsupported field")
+	}
+}
+
+func TestParseArgsAcceptsCommonFields(t *testing.T) {
+	parsed, err := parseArgs([]string{"--query-gpu=driver_version,pci.bus_id,serial,memory.free,utilization.memory,fan.speed,clocks.current.graphics,display_active"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.query) != 8 {
+		t.Fatalf("parsed query fields = %#v, want 8 fields", parsed.query)
 	}
 }
 
@@ -133,5 +267,10 @@ func TestRunHelpDoesNotQueryCluster(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "nvidia-smi") {
 		t.Fatalf("help output = %q", stdout.String())
+	}
+	for _, field := range []string{"driver_version", "pci.bus_id", "serial", "memory.free", "utilization.memory", "fan.speed", "clocks.current.graphics", "display_active"} {
+		if !strings.Contains(stdout.String(), field) {
+			t.Fatalf("help output = %q, missing supported field %q", stdout.String(), field)
+		}
 	}
 }

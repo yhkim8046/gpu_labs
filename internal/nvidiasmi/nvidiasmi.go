@@ -20,7 +20,17 @@ import (
 	"github.com/gpu-lab/gpu-lab/internal/runner"
 )
 
-const metricSelector = `{__name__=~"gpu_lab_gpu_(utilization_percent|memory_used_bytes|memory_total_bytes|temperature_celsius|power_watts|xid_code|ecc_dbe_total|health|throttle_active|allocated)"}`
+const (
+	metricSelector = `{__name__=~"gpu_lab_gpu_(utilization_percent|memory_used_bytes|memory_total_bytes|temperature_celsius|power_watts|xid_code|ecc_dbe_total|health|throttle_active|allocated)"}`
+
+	// These values are part of the compatibility layer's synthetic identity.
+	// They deliberately do not claim to describe a host NVIDIA installation.
+	syntheticDriverVersion = "550.163.01"
+	syntheticCUDAVersion   = "12.4"
+	syntheticGPUName       = "NVIDIA H200"
+	syntheticSerialPrefix  = "GPU-LAB-"
+	syntheticUnavailable   = "N/A"
+)
 
 type GPU struct {
 	Node             string
@@ -176,9 +186,14 @@ func parseFormat(parsed *options, value string) error {
 var supportedFields = map[string]bool{
 	"index": true, "name": true, "uuid": true, "temperature.gpu": true,
 	"power.draw": true, "power.limit": true, "memory.used": true,
-	"memory.total": true, "utilization.gpu": true,
+	"memory.total": true, "memory.free": true, "utilization.gpu": true,
+	"utilization.memory":               true,
 	"ecc.errors.uncorrected.aggregate": true, "xid.errors": true,
 	"pstate": true, "compute_mode": true,
+	"driver_version": true, "pci.bus_id": true, "serial": true,
+	"fan.speed": true, "clocks.current.graphics": true,
+	"display_active": true, "display_mode": true,
+	"persistence_mode": true, "mig.mode.current": true,
 }
 
 func collect(ctx context.Context, r runner.Runner) ([]GPU, error) {
@@ -275,7 +290,7 @@ func newGPU(node, id string) *GPU {
 		Node:            node,
 		ID:              id,
 		Index:           index,
-		Name:            "NVIDIA H200",
+		Name:            syntheticGPUName,
 		UUID:            "GPU-" + stableID(node+"/"+id),
 		PowerLimitWatts: 700,
 		Health:          1,
@@ -412,7 +427,7 @@ func printSummary(stdout io.Writer, gpus []GPU) error {
 
 func printSummaryBlock(stdout io.Writer, gpus []GPU) {
 	fmt.Fprintln(stdout, "+"+strings.Repeat("-", summaryInnerWidth)+"+")
-	fmt.Fprintln(stdout, summaryLine("NVIDIA-SMI 550.163.01              Driver Version: 550.163.01      CUDA Version: 12.4"))
+	fmt.Fprintln(stdout, summaryLine(fmt.Sprintf("NVIDIA-SMI %s              Driver Version: %s      CUDA Version: %s", syntheticDriverVersion, syntheticDriverVersion, syntheticCUDAVersion)))
 	fmt.Fprintln(stdout, "|"+strings.Repeat("-", 41)+"+"+strings.Repeat("-", 24)+"+"+strings.Repeat("-", 22)+"|")
 	fmt.Fprintln(stdout, summaryColumns(" GPU  Name                 Persistence-M", " Bus-Id          Disp.A", " Volatile Uncorr. ECC"))
 	fmt.Fprintln(stdout, summaryColumns(" Fan  Temp   Perf          Pwr:Usage/Cap", "         Memory-Usage", " GPU-Util  Compute M."))
@@ -508,6 +523,12 @@ func queryValue(gpu GPU, field string, noUnits bool) string {
 		return gpu.Name
 	case "uuid":
 		return gpu.UUID
+	case "driver_version":
+		return syntheticDriverVersion
+	case "pci.bus_id":
+		return busID(gpu.Index)
+	case "serial":
+		return serial(gpu)
 	case "temperature.gpu":
 		return unit(fmt.Sprintf("%.0f", gpu.Temperature), "C")
 	case "power.draw":
@@ -518,8 +539,20 @@ func queryValue(gpu GPU, field string, noUnits bool) string {
 		return unit(strconv.FormatInt(toMiB(gpu.MemoryUsedBytes), 10), "MiB")
 	case "memory.total":
 		return unit(strconv.FormatInt(toMiB(gpu.MemoryTotalBytes), 10), "MiB")
+	case "memory.free":
+		free, ok := freeMemoryBytes(gpu)
+		if !ok {
+			return syntheticUnavailable
+		}
+		return unit(strconv.FormatInt(toMiB(free), 10), "MiB")
 	case "utilization.gpu":
 		return unit(fmt.Sprintf("%.0f", gpu.Utilization), "%")
+	case "utilization.memory":
+		utilization, ok := memoryUtilization(gpu)
+		if !ok {
+			return syntheticUnavailable
+		}
+		return unit(fmt.Sprintf("%.0f", utilization), "%")
 	case "ecc.errors.uncorrected.aggregate":
 		return strconv.FormatInt(gpu.ECCDbe, 10)
 	case "xid.errors":
@@ -531,9 +564,50 @@ func queryValue(gpu GPU, field string, noUnits bool) string {
 		return "P0"
 	case "compute_mode":
 		return "Default"
+	case "fan.speed", "clocks.current.graphics":
+		// The lab has no fan or clock telemetry. Returning N/A keeps query
+		// scripts compatible without inventing a physical sensor reading.
+		return syntheticUnavailable
+	case "display_active", "display_mode", "mig.mode.current":
+		// Synthetic GPUs are headless and do not expose MIG instances.
+		return "Disabled"
+	case "persistence_mode":
+		return "Enabled"
 	default:
-		return "N/A"
+		return syntheticUnavailable
 	}
+}
+
+func serial(gpu GPU) string {
+	return syntheticSerialPrefix + strings.ToUpper(stableID(gpu.Node+"/"+gpu.ID))
+}
+
+func freeMemoryBytes(gpu GPU) (int64, bool) {
+	if gpu.MemoryTotalBytes <= 0 {
+		return 0, false
+	}
+	used := gpu.MemoryUsedBytes
+	if used < 0 {
+		used = 0
+	}
+	if used >= gpu.MemoryTotalBytes {
+		return 0, true
+	}
+	return gpu.MemoryTotalBytes - used, true
+}
+
+func memoryUtilization(gpu GPU) (float64, bool) {
+	if gpu.MemoryTotalBytes <= 0 {
+		return 0, false
+	}
+	used := gpu.MemoryUsedBytes
+	if used < 0 {
+		used = 0
+	}
+	if used >= gpu.MemoryTotalBytes {
+		return 100, true
+	}
+	return float64(used) / float64(gpu.MemoryTotalBytes) * 100, true
 }
 
 func toMiB(bytes int64) int64 {
@@ -559,8 +633,15 @@ Without --node, output is grouped into one nvidia-smi block per synthetic node.
 
 Supported fields:
   index,name,uuid,temperature.gpu,power.draw,power.limit,
-  memory.used,memory.total,utilization.gpu,
-  ecc.errors.uncorrected.aggregate,xid.errors,pstate,compute_mode
+  driver_version,pci.bus_id,serial,
+  memory.used,memory.total,memory.free,utilization.gpu,utilization.memory,
+  temperature.gpu,power.draw,power.limit,fan.speed,clocks.current.graphics,
+  ecc.errors.uncorrected.aggregate,xid.errors,pstate,compute_mode,
+  persistence_mode,display_active,display_mode,mig.mode.current
 
 This command reports synthetic GPU Lab telemetry. It does not access an
-NVIDIA driver, CUDA runtime, or physical GPU.`
+NVIDIA driver, CUDA runtime, or physical GPU. memory.free and
+utilization.memory are derived from synthetic memory counters; the latter is
+a VRAM-occupancy proxy, not memory-controller activity. fan.speed and
+clocks.current.graphics report N/A because no synthetic sensor is provided;
+display fields report Disabled for the headless lab environment.`

@@ -1,0 +1,13 @@
+apiVersion: gpu-lab.io/v1alpha1
+kind: Scenario
+metadata:
+  name: ib-rate-degraded
+spec:
+  description: The synthetic InfiniBand link on gpu-node-03 negotiates at a degraded 25 Gbps rate
+  targets:
+    selector:
+      gpu.lab/node-id: gpu-node-03
+  metrics:
+    ib_link_rate_gbps: 25
+    fabric_delay_seconds: 1.5
+  actions: []

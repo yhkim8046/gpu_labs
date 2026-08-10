@@ -7,9 +7,23 @@ import (
 	"strings"
 	"testing"
 
+	deployassets "github.com/gpu-lab/gpu-lab/deploy"
 	"github.com/gpu-lab/gpu-lab/internal/runner"
 	"github.com/gpu-lab/gpu-lab/internal/version"
 )
+
+func TestMonitoringAssetsAreEmbeddedAndUnique(t *testing.T) {
+	seen := make(map[string]struct{}, len(monitoringAssets))
+	for _, asset := range monitoringAssets {
+		if _, ok := seen[asset]; ok {
+			t.Fatalf("duplicate monitoring asset %q", asset)
+		}
+		seen[asset] = struct{}{}
+		if _, err := deployassets.FS.ReadFile(asset); err != nil {
+			t.Fatalf("read embedded monitoring asset %q: %v", asset, err)
+		}
+	}
+}
 
 func TestNewManagerUsesLocalImageForDevelopmentBuild(t *testing.T) {
 	oldVersion := version.Version

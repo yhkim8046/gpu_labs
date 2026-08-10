@@ -1,6 +1,6 @@
 # Release Binary
 
-GitHub Release에는 수강생용 `gpu`, 호환용 `gpu-lab`, 그리고 synthetic telemetry를 보여주는 `nvidia-smi` 호환 명령의 macOS, Linux, Windows 바이너리가 함께 업로드됩니다. GPU Lab 내부의 `nvidia-device-plugin`과 `dcgm-exporter`는 `gpu helm install`이 실제 Helm release로 배포하는 교육용 runtime image입니다.
+GitHub Release에는 수강생용 `gpu`, 호환용 `gpu-lab`, synthetic telemetry용 `nvidia-smi`, 그리고 rdma-core 명령 형식의 `ibstat`, `ibstatus`, `ibv_devinfo` macOS, Linux, Windows 바이너리가 함께 업로드됩니다. GPU Lab 내부의 `nvidia-device-plugin`과 `dcgm-exporter`는 `gpu helm install`이 실제 Helm release로 배포하는 교육용 runtime image입니다.
 
 ## 설치
 
@@ -43,6 +43,9 @@ tar -xzf "$ASSET"
 mkdir -p "$HOME/.local/bin"
 install -m 0755 gpu "$HOME/.local/bin/gpu"
 install -m 0755 nvidia-smi "$HOME/.local/bin/nvidia-smi"
+install -m 0755 ibstat "$HOME/.local/bin/ibstat"
+install -m 0755 ibstatus "$HOME/.local/bin/ibstatus"
+install -m 0755 ibv_devinfo "$HOME/.local/bin/ibv_devinfo"
 export PATH="$HOME/.local/bin:$PATH"
 
 gpu version
@@ -74,6 +77,9 @@ Expand-Archive $Asset -DestinationPath .\gpu-lab-$Version -Force
 New-Item -ItemType Directory -Force -Path "$HOME\bin" | Out-Null
 Copy-Item ".\gpu-lab-$Version\gpu.exe" "$HOME\bin\gpu.exe" -Force
 Copy-Item ".\gpu-lab-$Version\nvidia-smi.exe" "$HOME\bin\nvidia-smi.exe" -Force
+Copy-Item ".\gpu-lab-$Version\ibstat.exe" "$HOME\bin\ibstat.exe" -Force
+Copy-Item ".\gpu-lab-$Version\ibstatus.exe" "$HOME\bin\ibstatus.exe" -Force
+Copy-Item ".\gpu-lab-$Version\ibv_devinfo.exe" "$HOME\bin\ibv_devinfo.exe" -Force
 
 & "$HOME\bin\gpu.exe" version
 ```
@@ -112,13 +118,13 @@ CLI 바이너리만 제거하려면 다음을 실행합니다. cluster와 kubeco
 
 ```bash
 gpu destroy  # cluster까지 제거할 때만 먼저 실행
-rm -f "$HOME/.local/bin/gpu" "$HOME/.local/bin/gpu-lab" "$HOME/.local/bin/nvidia-smi"
+rm -f "$HOME/.local/bin/gpu" "$HOME/.local/bin/gpu-lab" "$HOME/.local/bin/nvidia-smi" "$HOME/.local/bin/ibstat" "$HOME/.local/bin/ibstatus" "$HOME/.local/bin/ibv_devinfo"
 ```
 
 Windows PowerShell에서는 다음을 실행합니다.
 
 ```powershell
-Remove-Item "$HOME\bin\gpu.exe", "$HOME\bin\nvidia-smi.exe"
+Remove-Item "$HOME\bin\gpu.exe", "$HOME\bin\nvidia-smi.exe", "$HOME\bin\ibstat.exe", "$HOME\bin\ibstatus.exe", "$HOME\bin\ibv_devinfo.exe"
 ```
 
 ## Release 생성

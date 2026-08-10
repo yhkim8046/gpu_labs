@@ -1,0 +1,13 @@
+apiVersion: gpu-lab.io/v1alpha1
+kind: Scenario
+metadata:
+  name: ib-symbol-errors
+spec:
+  description: Synthetic InfiniBand symbol errors and link recovery events accumulate on gpu-node-01
+  targets:
+    selector:
+      gpu.lab/node-id: gpu-node-01
+  metrics:
+    ib_symbol_errors_total: 128
+    ib_link_error_recovery_total: 6
+  actions: []

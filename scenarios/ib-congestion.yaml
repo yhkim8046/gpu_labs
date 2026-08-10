@@ -1,0 +1,14 @@
+apiVersion: gpu-lab.io/v1alpha1
+kind: Scenario
+metadata:
+  name: ib-congestion
+spec:
+  description: Synthetic InfiniBand transmit wait and discard counters indicate congestion on gpu-node-03
+  targets:
+    selector:
+      gpu.lab/node-id: gpu-node-03
+  metrics:
+    ib_xmit_wait_total: 640
+    ib_xmit_discards_total: 32
+    fabric_delay_seconds: 0.8
+  actions: []

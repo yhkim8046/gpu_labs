@@ -20,7 +20,7 @@ jobs:
       - run: bash -n scripts/install.sh
       - run: go test ./...
       - run: go vet ./...
-      - run: go build ./cmd/gpu-lab ./cmd/nvidia-smi ./cmd/nvidia-device-plugin ./cmd/dcgm-exporter
+      - run: go build ./cmd/gpu-lab ./cmd/nvidia-smi ./cmd/ibstat ./cmd/ibstatus ./cmd/ibv-devinfo ./cmd/nvidia-device-plugin ./cmd/dcgm-exporter ./cmd/training-worker
 
   container:
     runs-on: ubuntu-latest

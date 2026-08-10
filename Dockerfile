@@ -16,6 +16,10 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldfl
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags='-s -w' -o /out/nvidia-device-plugin ./cmd/nvidia-device-plugin
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags='-s -w' -o /out/dcgm-exporter ./cmd/dcgm-exporter
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags='-s -w' -o /out/nvidia-smi ./cmd/nvidia-smi
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags='-s -w' -o /out/ibstat ./cmd/ibstat
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags='-s -w' -o /out/ibstatus ./cmd/ibstatus
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags='-s -w' -o /out/ibv_devinfo ./cmd/ibv-devinfo
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags='-s -w' -o /out/training-worker ./cmd/training-worker
 
 FROM gcr.io/distroless/static-debian12:nonroot
 ARG VERSION=dev
@@ -31,4 +35,8 @@ COPY --from=build /out/gpu-lab /usr/local/bin/gpu-lab
 COPY --from=build /out/nvidia-device-plugin /usr/local/bin/nvidia-device-plugin
 COPY --from=build /out/dcgm-exporter /usr/local/bin/dcgm-exporter
 COPY --from=build /out/nvidia-smi /usr/local/bin/nvidia-smi
+COPY --from=build /out/ibstat /usr/local/bin/ibstat
+COPY --from=build /out/ibstatus /usr/local/bin/ibstatus
+COPY --from=build /out/ibv_devinfo /usr/local/bin/ibv_devinfo
+COPY --from=build /out/training-worker /usr/local/bin/training-worker
 COPY LICENSE /licenses/gpu-lab/LICENSE

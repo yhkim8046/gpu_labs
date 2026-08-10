@@ -65,6 +65,9 @@ go run ./cmd/gpu-lab verify normal
 go run ./cmd/gpu-lab nvidia-smi --list-gpus
 exporter_pod="$(kubectl --context gpu-lab -n gpu-lab-system get pods -l app.kubernetes.io/name=dcgm-exporter -o jsonpath='{.items[0].metadata.name}')"
 kubectl --context gpu-lab -n gpu-lab-system exec "$exporter_pod" -- nvidia-smi --list-gpus
+kubectl --context gpu-lab -n gpu-lab-system exec "$exporter_pod" -- ibstat
+kubectl --context gpu-lab -n gpu-lab-system exec "$exporter_pod" -- ibstatus
+kubectl --context gpu-lab -n gpu-lab-system exec "$exporter_pod" -- ibv_devinfo -v
 
 for scenario_name in "${scenario_names[@]}"; do
   go run ./cmd/gpu-lab scenario run "$scenario_name"

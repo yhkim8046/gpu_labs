@@ -1,0 +1,14 @@
+.git
+.github
+.openai
+.wrangler
+site
+docs
+test
+scripts
+node_modules
+**/node_modules
+dist
+build
+*.log
+.DS_Store

@@ -13,6 +13,8 @@ gpu-lab은 GPU나 CUDA를 흉내 내는 프로젝트가 아닙니다. Kubernetes
 - NVIDIA Device Plugin의 등록·할당 모델을 따르는 synthetic `nvidia-device-plugin`
 - DCGM Exporter의 관측 모델을 따르는 synthetic `dcgm-exporter`
 - Prometheus와 Grafana 기반 GPU monitoring
+- 3-rank synthetic AllReduce 분산학습과 checkpoint/장애 복구 실습
+- synthetic InfiniBand/RDMA HCA·port·fabric 장애와 AllReduce 영향 관측
 - YAML 기반 GPU incident scenario
 - scheduling failure, exporter down, thermal, ECC/XID, power throttling, PCIe replay, idle GPU, capacity mismatch, selector mismatch, fragmentation troubleshooting
 
@@ -46,6 +48,9 @@ gpu helm list --all-namespaces
 - [Student Guide](docs/student-guide.md)
 - [Release & Installation](docs/release.md)
 - [Scenario Runbook](docs/scenarios.md)
+- [Distributed Training Runbook](docs/distributed-training.md)
+- [InfiniBand/RDMA Fabric Runbook](docs/ib-fabric.md)
+- [GPU-less Model Serving Expansion Proposal](docs/model-serving-expansion.md)
 - [Synthetic vs Real](docs/synthetic-vs-real.md)
 - [Metric Mapping](docs/metric-mapping.md)
 - [Support Matrix](docs/support-matrix.md)
@@ -110,7 +115,19 @@ go run ./cmd/gpu-lab helm repo list
 go run ./cmd/gpu-lab context list
 go run ./cmd/gpu-lab context use gpu-lab
 go run ./cmd/gpu-lab nvidia-smi
+go run ./cmd/gpu-lab ibstat --node gpu-lab-worker
+go run ./cmd/gpu-lab ibstatus --node gpu-lab-worker
+go run ./cmd/gpu-lab ibv_devinfo --node gpu-lab-worker -v
+go run ./cmd/gpu-lab training run --workers 3 --wait
+go run ./cmd/gpu-lab training status
+go run ./cmd/gpu-lab training inject straggler --rank 2 --delay 2s
+go run ./cmd/gpu-lab training recover
+go run ./cmd/gpu-lab scenario run ib-rate-degraded
+go run ./cmd/gpu-lab verify ib-rate-degraded
+go run ./cmd/gpu-lab scenario reset
 ```
+
+분산학습 실습은 세 worker의 rendezvous, AllReduce 지연, rank 장애, checkpoint 기반 재시작과 Prometheus/Grafana 관측 흐름을 재현합니다. InfiniBand/RDMA 실습은 synthetic HCA와 port 상태, link rate, 오류·retry·congestion 신호를 AllReduce 진행과 연결합니다. 연산과 metric은 결정적인 synthetic 값이며 실제 CUDA, NCCL, RDMA 또는 NVLink 성능을 측정하지 않습니다. 전체 절차는 [Distributed Training Runbook](docs/distributed-training.md)과 [InfiniBand/RDMA Fabric Runbook](docs/ib-fabric.md)을 따르세요.
 
 GPU Lab는 synthetic telemetry를 NVIDIA-SMI 형태로 확인할 수 있는 호환 명령도 제공합니다.
 
@@ -119,9 +136,14 @@ gpu nvidia-smi
 nvidia-smi --list-gpus
 nvidia-smi --query-gpu=temperature.gpu,memory.used,utilization.gpu --format=csv,noheader,nounits
 gpu nvidia-smi --node gpu-lab-worker
+gpu ibstat --node gpu-lab-worker
+gpu ibstatus --node gpu-lab-worker
+gpu ibv_devinfo --node gpu-lab-worker -v
 ```
 
 기본 출력은 synthetic 노드별로 하나의 NVIDIA-SMI 블록을 보여줍니다. 특정 노드만 확인하려면 `--node <node-name>`을 사용합니다. Release archive의 `nvidia-smi`를 PATH에 설치하면 `nvidia-smi`를 직접 입력할 수 있습니다. 이 명령은 실제 NVIDIA driver/CUDA를 사용하지 않고, 설치된 Prometheus의 `gpu_lab_*` metric을 읽습니다.
+
+Release와 runtime image에는 rdma-core 명령 이름을 그대로 사용하는 `ibstat`, `ibstatus`, `ibv_devinfo` 호환 바이너리도 포함됩니다. `gpu ibstat`처럼 CLI 하위 명령으로 실행하거나 exporter Pod 안에서 `ibstat`을 직접 실행할 수 있으며, CA·GUID·LID·port state·physical state·rate·MTU 필드와 옵션 형식은 실제 명령 출력을 따릅니다. 값은 synthetic HCA 상태입니다.
 
 실제 cluster lifecycle을 실행하려면 Docker, kind, kubectl, Helm을 설치한 뒤 저장소 루트에서 다음을 실행합니다.
 

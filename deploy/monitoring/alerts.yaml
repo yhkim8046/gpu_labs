@@ -12,98 +12,178 @@ spec:
     - name: gpu-lab.rules
       rules:
         - alert: GPULabHighUtilization
-          expr: avg by (node) (gpu_lab_gpu_utilization_percent) > 80
-          for: 1m
+          expr: gpu_lab_gpu_utilization_percent > 90
+          for: 5m
           labels:
             severity: warning
+            category: utilization
+            component: gpu
           annotations:
-            summary: "GPU utilization is high on {{ $labels.node }}"
-            description: "Synthetic GPU utilization has stayed above 80 percent for one minute."
+            summary: "GPU {{ $labels.gpu }} on {{ $labels.node }} is saturated"
+            description: "GPU utilization has remained above 90 percent for five minutes. Confirm workload demand and queue pressure before rebalancing or adding capacity."
+            runbook: "Check the utilization and allocation panels for {{ $labels.node }}/{{ $labels.gpu }}, then compare allocated GPUs with node allocatable capacity. Inspect the workload's batch size, concurrency, and scheduler queue before changing placement."
         - alert: GPULabVRAMPressure
-          expr: (gpu_lab_gpu_memory_used_bytes / gpu_lab_gpu_memory_total_bytes) > 0.9
-          for: 1m
+          expr: 100 * gpu_lab_gpu_memory_used_bytes / gpu_lab_gpu_memory_total_bytes > 90
+          for: 5m
           labels:
             severity: warning
+            category: memory
+            component: gpu
           annotations:
-            summary: "VRAM pressure on {{ $labels.node }}"
-            description: "Synthetic VRAM usage is above 90 percent."
+            summary: "VRAM pressure on GPU {{ $labels.gpu }} at {{ $labels.node }}"
+            description: "GPU memory usage has remained above 90 percent for five minutes. Allocation may still look healthy while kernels approach out-of-memory risk."
+            runbook: "Inspect the VRAM Usage panel and the workload using {{ $labels.node }}/{{ $labels.gpu }}. Reduce batch size or memory growth, check for leaks, and verify that allocatable capacity is not hiding a placement problem."
+        - alert: GPULabHighGPUTemperature
+          expr: gpu_lab_gpu_temperature_celsius > 80
+          for: 5m
+          labels:
+            severity: warning
+            category: thermal
+            component: gpu
+          annotations:
+            summary: "GPU {{ $labels.gpu }} on {{ $labels.node }} is running hot"
+            description: "GPU temperature has stayed above 80 degrees Celsius for five minutes. Correlate temperature with utilization, power draw, and throttle state."
+            runbook: "Check the temperature, utilization, power, and throttling panels together. Inspect node cooling, fan or airflow conditions, workload placement, and recent power-policy changes before draining the node."
         - alert: GPULabThermalThrottling
           expr: gpu_lab_gpu_temperature_celsius > 90
-          for: 30s
+          for: 1m
           labels:
             severity: critical
+            category: thermal
+            component: gpu
           annotations:
             summary: "GPU temperature is critical on {{ $labels.node }}"
-            description: "Synthetic GPU temperature is above 90 degrees Celsius; inspect utilization, power, and throttling symptoms."
+            description: "GPU {{ $labels.gpu }} is above 90 degrees Celsius. Throughput can fall as the device protects itself from thermal damage."
+            runbook: "Stop or reduce the affected workload if safe, inspect utilization, power, and throttle state, and verify node cooling and placement. In a real cluster, cordon or drain only after confirming the incident scope; this lab signal is synthetic."
         - alert: GPULabXIDPresent
           expr: gpu_lab_gpu_xid_code > 0
           for: 30s
           labels:
             severity: critical
+            category: xid
+            component: gpu
           annotations:
-            summary: "Synthetic GPU XID on {{ $labels.node }}"
-            description: "Inspect the XID code and GPU health metric."
+            summary: "GPU XID {{ $value }} on {{ $labels.node }}"
+            description: "GPU {{ $labels.gpu }} reports a non-zero XID code. Treat this as a device fault signal and correlate it with health and ECC telemetry."
+            runbook: "Record the XID code, check GPU health and ECC panels, identify workloads on {{ $labels.node }}/{{ $labels.gpu }}, and inspect device-plugin, exporter, kubelet, and kernel logs. Isolate or drain the GPU in a real environment; the lab value is synthetic."
         - alert: GPULabGPUUnhealthy
           expr: gpu_lab_gpu_health == 0
           for: 30s
           labels:
             severity: critical
+            category: health
+            component: gpu
           annotations:
-            summary: "Synthetic GPU unhealthy on {{ $labels.node }}"
-            description: "The synthetic dcgm-exporter reports an unhealthy virtual GPU."
+            summary: "GPU {{ $labels.gpu }} is unhealthy on {{ $labels.node }}"
+            description: "The synthetic DCGM-style exporter reports an unhealthy virtual GPU. A non-zero XID or ECC signal may explain the failed health state."
+            runbook: "Correlate health with XID, ECC, temperature, and PCIe replay. Stop new placement on the device, inspect node and exporter logs, and follow the real-cluster GPU recovery or replacement procedure."
         - alert: GPULabDoubleBitECC
           expr: gpu_lab_gpu_ecc_dbe_total > 0
           for: 30s
           labels:
             severity: critical
+            category: ecc
+            component: gpu
           annotations:
             summary: "Uncorrectable ECC error on {{ $labels.node }}"
-            description: "Double-bit ECC errors are present; drain the workload and isolate the GPU."
+            description: "GPU {{ $labels.gpu }} has a non-zero double-bit ECC counter. Treat uncorrectable memory errors as a device isolation event."
+            runbook: "Record the ECC counter and correlate it with XID and health status. Drain affected workloads, prevent new allocation to the GPU, inspect node and hardware logs, and plan GPU or node recovery."
         - alert: GPULabPowerThrottle
-          expr: gpu_lab_gpu_throttle_active{reason="power_cap"} == 1 or increase(gpu_lab_gpu_power_violation_total[5m]) > 0
-          for: 30s
+          expr: gpu_lab_gpu_throttle_active > 0
+          for: 1m
           labels:
             severity: warning
+            category: power
+            component: gpu
           annotations:
-            summary: "GPU is power throttling on {{ $labels.node }}"
-            description: "Power-limit violations or an active power-cap throttle require clock, power, and workload investigation."
+            summary: "GPU {{ $labels.gpu }} is throttling on {{ $labels.node }}"
+            description: "GPU clock throttling is active for reason {{ $labels.reason }}. Correlate throttle state with power, temperature, and utilization before treating it as a hardware failure."
+            runbook: "Check the power and temperature panels, then inspect the throttle reason and workload demand. Review power limits, cooling, and placement; if performance is degraded, compare with the recent power-violation counter."
+        - alert: GPULabPowerViolation
+          expr: increase(gpu_lab_gpu_power_violation_total[5m]) > 0 or gpu_lab_gpu_power_violation_total > 0
+          for: 1m
+          labels:
+            severity: warning
+            category: power
+            component: gpu
+          annotations:
+            summary: "GPU power-limit violations on {{ $labels.node }}"
+            description: "The power-violation counter for GPU {{ $labels.gpu }} increased recently or is non-zero. Sustained violations can explain clock throttling and lower throughput."
+            runbook: "Compare power draw, temperature, utilization, and throttle state for the affected GPU. Verify configured power policy and cooling, then inspect workload behavior and node hardware telemetry."
         - alert: GPULabPCIeReplay
           expr: increase(gpu_lab_gpu_pcie_replay_total[5m]) > 0
           for: 30s
           labels:
             severity: warning
+            category: pcie
+            component: gpu
           annotations:
             summary: "PCIe replay errors on {{ $labels.node }}"
-            description: "PCIe replay counters increased; inspect link state, host bridge, cable, and hardware errors."
+            description: "PCIe replay events for GPU {{ $labels.gpu }} increased during the last five minutes. Link instability can precede a device or host failure."
+            runbook: "Check the PCIe replay counter and GPU health/XID panels. Inspect link state, host bridge and cable or slot health, kernel logs, and neighboring devices before restarting workloads."
         - alert: GPULabAllocatedGPUIdle
           expr: (gpu_lab_gpu_allocated == 1) and (gpu_lab_gpu_utilization_percent < 5)
           for: 5m
           labels:
             severity: warning
+            category: efficiency
+            component: scheduler
           annotations:
-            summary: "Allocated GPU is idle on {{ $labels.node }}"
-            description: "A workload reserves a GPU while utilization remains below 5 percent."
+            summary: "Allocated GPU {{ $labels.gpu }} is idle on {{ $labels.node }}"
+            description: "A workload reserves this GPU while utilization remains below five percent for five minutes. This is a capacity-efficiency signal, not necessarily a device fault."
+            runbook: "Identify the pod reserving {{ $labels.node }}/{{ $labels.gpu }}, compare requested versus observed utilization and memory, and adjust request sizing, queue policy, or idle reclamation."
         - alert: GPULabGPUCapacityMismatch
           expr: gpu_lab_node_gpu_capacity != gpu_lab_node_gpu_allocatable
           for: 1m
           labels:
             severity: critical
+            category: capacity
+            component: scheduler
           annotations:
             summary: "GPU capacity and allocatable counts differ on {{ $labels.node }}"
-            description: "Reconcile device-plugin registration, kubelet Node status, and scheduler capacity."
+            description: "Node GPU capacity does not match allocatable capacity. Scheduler placement and exporter observations can disagree until the device-plugin and kubelet state are reconciled."
+            runbook: "Compare capacity and allocatable panels with Node status and device-plugin registration. Inspect kubelet and device-plugin logs, then reconcile the resource state before scheduling more GPU workloads."
+        - alert: GPULabGPUCapacityExhausted
+          expr: gpu_lab_node_gpu_allocatable - on(node) sum by (node) (gpu_lab_gpu_allocated) <= 0
+          for: 5m
+          labels:
+            severity: warning
+            category: capacity
+            component: scheduler
+          annotations:
+            summary: "No allocatable GPU headroom remains on {{ $labels.node }}"
+            description: "All reported allocatable GPUs on {{ $labels.node }} are reserved. New GPU workloads may remain Pending even though physical capacity exists."
+            runbook: "Inspect the allocation and capacity panels, list GPU pod requests on the node, and decide whether to wait, preempt, resize, or add capacity. Check for stale reservations before escalating."
         - alert: GPULabExporterDown
-          expr: up{service="dcgm-exporter"} == 0
+          expr: up{service="dcgm-exporter"} == 0 or absent(gpu_lab_exporter_up)
           for: 1m
           labels:
             severity: critical
+            category: availability
+            component: exporter
           annotations:
-            summary: "GPU exporter is down on {{ $labels.instance }}"
-            description: "Prometheus cannot scrape the synthetic dcgm-exporter."
+            summary: "GPU exporter scrape is unavailable"
+            description: "Prometheus cannot scrape a healthy dcgm-exporter target, or the gpu_lab_exporter_up projection is absent. GPU telemetry and dependent alerts may be incomplete."
+            runbook: "Check the exporter target status, ServiceMonitor selector, exporter pod logs, service endpoints, and /metrics or /readyz. Restore scraping before diagnosing GPU health; suppressing downstream alerts without telemetry can hide a fault."
         - alert: GPULabSchedulingFailure
           expr: kube_pod_status_phase{namespace="gpu-lab-demo", pod=~"gpu-lab-(scheduling-failure|node-selector-mismatch|fragmentation-target)", phase="Pending"} == 1
           for: 30s
           labels:
             severity: warning
+            category: scheduling
+            component: scheduler
           annotations:
             summary: "GPU workload {{ $labels.pod }} is Pending"
-            description: "Inspect scheduler events, node selectors, and per-node GPU allocatable capacity."
+            description: "A GPU workload has remained Pending. The cause may be insufficient allocatable GPUs, a node selector mismatch, or fragmented capacity."
+            runbook: "Describe the pod and inspect scheduler events, node selectors, GPU requests, and per-node allocatable capacity. Do not treat exporter telemetry alone as proof that Kubernetes can place the workload."
+        - alert: GPULabScenarioActive
+          expr: sum by (scenario) (gpu_lab_scenario_info{scenario!="normal"}) > 0
+          for: 30s
+          labels:
+            severity: info
+            category: scenario
+            component: gpu-lab
+          annotations:
+            summary: "Synthetic GPU Lab scenario {{ $labels.scenario }} is active"
+            description: "A non-baseline scenario is changing the GPU telemetry or workload state. Alerts may be intentional exercise signals rather than production faults."
+            runbook: "Use the Active Scenario and Scenario Generation panels to confirm scope, follow the matching scenario runbook, and run 'gpu-lab scenario reset' after the exercise before evaluating baseline health."

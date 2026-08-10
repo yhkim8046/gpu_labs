@@ -1,0 +1,22 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: gpu-lab-training
+  namespace: gpu-lab-monitoring
+  labels:
+    app.kubernetes.io/name: gpu-lab-training
+    app.kubernetes.io/part-of: gpu-lab
+    app.kubernetes.io/managed-by: gpu-lab
+spec:
+  namespaceSelector:
+    matchNames:
+      - gpu-lab-demo
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gpu-lab-training
+      app.kubernetes.io/managed-by: gpu-lab
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 5s
+      scrapeTimeout: 3s

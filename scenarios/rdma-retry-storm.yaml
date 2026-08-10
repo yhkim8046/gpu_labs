@@ -1,0 +1,14 @@
+apiVersion: gpu-lab.io/v1alpha1
+kind: Scenario
+metadata:
+  name: rdma-retry-storm
+spec:
+  description: Synthetic RDMA retries and timeouts delay collectives on gpu-node-02
+  targets:
+    selector:
+      gpu.lab/node-id: gpu-node-02
+  metrics:
+    rdma_retries_total: 250
+    rdma_timeouts_total: 8
+    fabric_delay_seconds: 1
+  actions: []

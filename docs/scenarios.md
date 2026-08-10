@@ -21,6 +21,34 @@ gpu-lab scenario reset
 kubectl --context gpu-lab get pods -n gpu-lab-demo
 ```
 
+## Node/GPU target과 자동 만료
+
+사용자 정의 Scenario는 node label selector와 GPU index를 함께 지정할 수 있습니다. `gpu_indices`를 생략하면 선택된 node의 모든 synthetic GPU에 적용됩니다. `duration`이 끝나면 exporter telemetry와 exporter fault는 자동으로 `normal` 상태로 돌아가며, ConfigMap generation은 마지막 적용 값을 유지합니다.
+
+```yaml
+apiVersion: gpu-lab.io/v1alpha1
+kind: Scenario
+metadata:
+  name: one-gpu-hot
+spec:
+  duration: 2m
+  targets:
+    selector:
+      gpu.lab/node-id: gpu-node-01
+    gpu_indices: [0]
+  metrics:
+    gpu_utilization_percent: 96
+    temperature_celsius: 91
+```
+
+```bash
+gpu scenario inspect one-gpu-hot --file ./one-gpu-hot.yaml
+gpu scenario run one-gpu-hot --file ./one-gpu-hot.yaml
+gpu metrics --query 'gpu_lab_gpu_temperature_celsius{node="gpu-lab-worker"}'
+```
+
+`exporter_fault`, `gpu_capacity`, `gpu_allocatable`은 process/node 단위 상태이므로 개별 `gpu_indices`와 함께 사용할 수 없습니다. `duration` 만료는 exporter의 합성 상태를 복구하지만 scenario가 만든 Kubernetes workload를 삭제하지는 않으므로, workload action이 포함된 실습은 마지막에 `gpu scenario reset`을 실행합니다.
+
 ## Scenario 목록
 
 | Scenario | 핵심 학습 포인트 | 대표 증상 |
@@ -41,6 +69,11 @@ kubectl --context gpu-lab get pods -n gpu-lab-demo
 | `gpu-capacity-mismatch` | telemetry와 scheduler resource 대조 | capacity 8, allocatable 4 |
 | `node-selector-mismatch` | GPU profile/label 불일치 | node affinity/selector failure |
 | `gpu-fragmentation` | cluster 총량과 node 단위 할당 차이 | 총 3 GPU 여유, 2 GPU Pod Pending |
+| `ib-link-down` | IB port 단절과 training 영향 상관 분석 | port down, link-down counter, rank communication fault |
+| `ib-rate-degraded` | port up 상태의 negotiated rate 저하 분석 | rate < 100 Gbps, fabric/AllReduce latency 증가 |
+| `ib-symbol-errors` | 물리 링크 오류와 recovery counter 조사 | symbol/link recovery counter 증가 |
+| `rdma-retry-storm` | RDMA retry·timeout과 collective 오류 분리 | retry/timeout 및 training fabric retry 증가 |
+| `ib-congestion` | 송신 큐 압박과 집단통신 지연 분석 | xmit wait/discard, fabric delay 증가 |
 
 ## thermal-throttling
 
@@ -159,3 +192,30 @@ kubectl --context gpu-lab get pods -n gpu-lab-system -l app.kubernetes.io/name=d
 gpu-lab scenario run xid-79
 kubectl --context gpu-lab get configmap gpu-lab-scenario -n gpu-lab-system -o yaml
 ```
+
+## InfiniBand/RDMA fabric scenario
+
+GPU scenario와 분산학습 scenario를 같은 시간축에서 보는 실습은 [InfiniBand/RDMA Fabric 운영 실습](ib-fabric.md)에 정리되어 있습니다. 다음 다섯 scenario는 실제 NIC를 변경하지 않고 synthetic exporter와 training control 신호를 함께 바꿉니다.
+
+| Scenario | Fabric 신호 | Training에서 볼 신호 |
+|---|---|---|
+| ib-link-down | port_up=0, link_downed 증가 | fault mode, communication error, AllReduce/step stall |
+| ib-rate-degraded | negotiated rate < 100 Gbps | fabric delay와 AllReduce latency 증가 |
+| ib-symbol-errors | symbol/link recovery 증가 | fabric retry 또는 delay 증가 가능 |
+| rdma-retry-storm | RDMA retries/timeouts 증가 | fabric retries/errors, collective 재시도 |
+| ib-congestion | xmit wait/discards 증가 | throughput 저하, fabric delay, progress 둔화 |
+
+공통 조사 명령은 다음과 같습니다.
+
+    gpu scenario run ib-rate-degraded
+    gpu verify ib-rate-degraded
+    gpu ibstat --node gpu-lab-worker3
+    gpu ibstatus --node gpu-lab-worker3
+    gpu ibv_devinfo --node gpu-lab-worker3 -v
+    gpu training status
+    gpu metrics --query 'gpu_lab_ib_link_rate_gbps'
+    gpu metrics --query 'gpu_lab_training_fabric_delay_seconds'
+    gpu scenario reset
+    gpu training recover
+
+Grafana의 GPU Lab InfiniBand / RDMA Fabric 대시보드에서는 node, hca, port, link_layer 변수를 기준으로 port health/state → rate → physical/link error → congestion → RDMA → training correlation 순서로 확인합니다. 값은 모두 synthetic이며 실제 IB/RDMA 성능이나 장비 장애의 증거가 아닙니다. 실제 환경의 ibstat, perfquery, rdma statistic, mlxlink, NCCL topology/log 확인 방법과 각 scenario의 bounded polling·복구 절차는 ib-fabric.md를 참조하세요.

@@ -18,15 +18,15 @@ gpu-lab의 주제는 강의 상품으로 차별화할 수 있습니다. 일반 K
 
 ## P1 기능
 
-- node/GPU 단위 scenario target 선택
-- `duration` 만료 후 자동 reset
+- 완료: node label과 GPU index 단위 scenario target 선택
+- 완료: `duration` 만료 후 exporter telemetry/fault 자동 reset
 - 한 scenario 안에서 baseline → warning → critical → recovery로 변하는 단계형 timeline
 - device plugin 미등록, 잘못된 taint/toleration, GPU node NotReady, image pull failure 시나리오
 - Pod/namespace/container label을 포함한 GPU metric과 workload 상관분석
 - MIG와 time-slicing의 resource model 교육 모드
 - DCGM-compatible metric alias와 실제 Grafana dashboard import 실습
 - scenario별 정답 숨김 모드와 instructor solution 모드
-- 수강생 결과를 확인하는 `gpu-lab verify <scenario>`
+- 완료: 수강생 결과를 확인하는 `gpu-lab verify <scenario>`
 
 ## 권장 강의 구성
 

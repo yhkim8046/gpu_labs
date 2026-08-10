@@ -1,4 +1,4 @@
-.PHONY: build test fmt docker-build dev-create e2e release-snapshot
+.PHONY: build test fmt docker-build dev-create e2e e2e-training e2e-ib release-snapshot
 
 VERSION_PACKAGE := github.com/gpu-lab/gpu-lab/internal/version
 VERSION ?= dev
@@ -7,7 +7,7 @@ BUILD_DATE ?= unknown
 LDFLAGS ?= -s -w -X $(VERSION_PACKAGE).Version=$(VERSION) -X $(VERSION_PACKAGE).Commit=$(COMMIT) -X $(VERSION_PACKAGE).BuildDate=$(BUILD_DATE)
 
 build:
-	go build -trimpath -ldflags="$(LDFLAGS)" ./cmd/gpu-lab ./cmd/nvidia-smi ./cmd/nvidia-device-plugin ./cmd/dcgm-exporter
+	go build -trimpath -ldflags="$(LDFLAGS)" ./cmd/gpu-lab ./cmd/nvidia-smi ./cmd/ibstat ./cmd/ibstatus ./cmd/ibv-devinfo ./cmd/nvidia-device-plugin ./cmd/dcgm-exporter ./cmd/training-worker
 
 test:
 	go test ./...
@@ -23,6 +23,12 @@ dev-create:
 
 e2e:
 	./test/e2e/run.sh
+
+e2e-training:
+	./test/e2e/training.sh
+
+e2e-ib:
+	./test/e2e/ib.sh
 
 release-snapshot:
 	goreleaser release --snapshot --clean

@@ -1,0 +1,73 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: gpu-lab-training-alerts
+  namespace: gpu-lab-monitoring
+  labels:
+    app.kubernetes.io/name: gpu-lab-training-alerts
+    app.kubernetes.io/part-of: gpu-lab
+    app.kubernetes.io/managed-by: gpu-lab
+spec:
+  groups:
+    - name: gpu-lab-training.rules
+      rules:
+        - alert: GPULabTrainingRankDown
+          expr: (up{namespace="gpu-lab-demo", service="gpu-lab-training"} == 0) or on (namespace, pod) (kube_pod_container_status_ready{namespace="gpu-lab-demo", container="training-worker"} == 0)
+          for: 30s
+          labels:
+            severity: critical
+            component: distributed-training
+          annotations:
+            summary: "학습 worker {{ $labels.pod }} 가동 중단"
+            description: "{{ $labels.pod }} worker가 30초 이상 scrape 또는 readiness 검사에 실패했습니다."
+            runbook: "gpu training status와 kubectl describe pod {{ $labels.pod }}를 확인하고 해당 rank의 로그와 StatefulSet 이벤트를 조사하세요."
+        - alert: GPULabTrainingProgressStalled
+          expr: changes(gpu_lab_training_step{namespace="gpu-lab-demo"}[2m]) == 0 and on (namespace, pod, rank) max_over_time(gpu_lab_training_rank_up{namespace="gpu-lab-demo"}[2m]) > 0
+          for: 1m
+          labels:
+            severity: warning
+            component: distributed-training
+          annotations:
+            summary: "분산학습 진행이 정지됨"
+            description: "{{ $labels.pod }} rank {{ $labels.rank }}의 step이 2분 동안 변하지 않았습니다."
+            runbook: "allreduce 지연·오류와 다른 rank의 step을 비교하고 gpu training logs --rank {{ $labels.rank }}를 실행하세요."
+        - alert: GPULabTrainingSlowAllReduce
+          expr: avg by (namespace, pod, rank) (gpu_lab_training_allreduce_seconds{namespace="gpu-lab-demo"}) > 0.5
+          for: 1m
+          labels:
+            severity: warning
+            component: distributed-training
+          annotations:
+            summary: "AllReduce 지연 증가"
+            description: "분산학습 AllReduce 시간이 0.5초를 초과했습니다."
+            runbook: "rank별 latency와 straggler 상태를 확인하고 worker node 및 네트워크 지연을 비교하세요."
+        - alert: GPULabTrainingAllReduceErrors
+          expr: increase(gpu_lab_training_allreduce_errors_total{namespace="gpu-lab-demo"}[5m]) > 0
+          for: 30s
+          labels:
+            severity: critical
+            component: distributed-training
+          annotations:
+            summary: "AllReduce 오류 발생"
+            description: "최근 5분 동안 {{ $labels.pod }}에서 AllReduce 오류가 증가했습니다."
+            runbook: "모든 rank의 로그에서 rendezvous·timeout을 확인하고 worker-crash drill 후 checkpoint에서 recover하세요."
+        - alert: GPULabTrainingStragglerActive
+          expr: max by (namespace, pod, rank) (gpu_lab_training_straggler_active{namespace="gpu-lab-demo"}) > 0
+          for: 15s
+          labels:
+            severity: info
+            component: distributed-training
+          annotations:
+            summary: "Straggler 주입 상태"
+            description: "{{ $labels.pod }} rank {{ $labels.rank }}에 의도적인 지연이 활성화되어 있습니다."
+            runbook: "실습 의도인지 확인하고 복구 후 gpu training recover로 control 상태를 정상화하세요."
+        - alert: GPULabTrainingCheckpointLag
+          expr: (max by (namespace, pod, rank) (gpu_lab_training_step{namespace="gpu-lab-demo"}) - max by (namespace, pod, rank) (gpu_lab_training_checkpoint_step{namespace="gpu-lab-demo"})) > 5
+          for: 1m
+          labels:
+            severity: warning
+            component: distributed-training
+          annotations:
+            summary: "Checkpoint가 학습 진행을 따라가지 못함"
+            description: "{{ $labels.pod }} rank {{ $labels.rank }}의 step과 checkpoint 차이가 5를 넘었습니다."
+            runbook: "checkpoint 경로와 디스크 상태를 확인하고 worker 로그에서 저장 오류를 조사하세요."

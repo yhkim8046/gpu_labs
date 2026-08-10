@@ -33,6 +33,17 @@ var labComponents = []Component{
 	{Name: ComponentMonitoring, Release: MonitoringRelease, Namespace: MonitoringNS, Description: "Prometheus, Grafana, alerts, and GPU dashboard"},
 }
 
+var monitoringAssets = []string{
+	"monitoring/servicemonitor.yaml",
+	"monitoring/alerts.yaml",
+	"monitoring/dashboard-configmap.yaml",
+	"monitoring/training-servicemonitor.yaml",
+	"monitoring/training-alerts.yaml",
+	"monitoring/training-dashboard-configmap.yaml",
+	"monitoring/fabric-alerts.yaml",
+	"monitoring/fabric-dashboard-configmap.yaml",
+}
+
 func Components() []Component {
 	return append([]Component(nil), labComponents...)
 }
@@ -100,7 +111,7 @@ func (m Manager) InstallComponent(ctx context.Context, name string, extraArgs ..
 		if err := m.Runner.Run(ctx, "helm", args...); err != nil {
 			return err
 		}
-		for _, asset := range []string{"monitoring/servicemonitor.yaml", "monitoring/alerts.yaml", "monitoring/dashboard-configmap.yaml"} {
+		for _, asset := range monitoringAssets {
 			if err := m.ApplyAsset(ctx, asset); err != nil {
 				return fmt.Errorf("apply %s: %w", asset, err)
 			}
@@ -153,7 +164,7 @@ func (m Manager) UninstallComponent(ctx context.Context, name string, extraArgs 
 		return fmt.Errorf("helm is not installed; install the official Helm CLI, then retry")
 	}
 	if component.Name == ComponentMonitoring {
-		for _, asset := range []string{"monitoring/servicemonitor.yaml", "monitoring/alerts.yaml", "monitoring/dashboard-configmap.yaml"} {
+		for _, asset := range monitoringAssets {
 			if err := m.DeleteAsset(ctx, asset); err != nil {
 				return fmt.Errorf("delete %s: %w", asset, err)
 			}

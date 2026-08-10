@@ -354,6 +354,9 @@ Helm chart와 image version은 재현성을 위해 파일에서 명시적으로 
 | `gpu dashboard [--port <port>]` | Grafana service port-forward shortcut |
 | `gpu metrics [--query <PromQL>] [--json]` | 기본 GPU metric 또는 custom PromQL 조회 |
 | `gpu nvidia-smi ...` | synthetic telemetry를 NVIDIA-SMI 호환 표/CSV로 조회 |
+| `gpu ibstat ...` | synthetic HCA와 port를 실제 ibstat 형식으로 조회 |
+| `gpu ibstatus ...` | GID/LID/state/rate를 실제 ibstatus 형식으로 조회 |
+| `gpu ibv_devinfo ...` | verbs device/port 속성을 실제 ibv_devinfo 형식으로 조회 |
 | `gpu context list` | 현재 context와 사용 가능한 kubeconfig context 표시 |
 | `gpu context setup` | dedicated kubeconfig와 `gpu-lab` alias context 생성 |
 | `gpu context use <name>` | 기본 kubeconfig의 current-context 전환 |

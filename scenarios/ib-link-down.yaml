@@ -1,0 +1,16 @@
+apiVersion: gpu-lab.io/v1alpha1
+kind: Scenario
+metadata:
+  name: ib-link-down
+spec:
+  description: The synthetic mlx5_0 port on gpu-node-02 is down and physically disabled
+  targets:
+    selector:
+      gpu.lab/node-id: gpu-node-02
+  metrics:
+    ib_port_up: 0
+    ib_state: DOWN
+    ib_physical_state: DISABLED
+    ib_link_downed_total: 1
+    fabric_delay_seconds: 0
+  actions: []

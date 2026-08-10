@@ -166,6 +166,9 @@ gpu nvidia-smi
 nvidia-smi --list-gpus
 nvidia-smi --query-gpu=temperature.gpu,memory.used,utilization.gpu --format=csv,noheader,nounits
 gpu nvidia-smi --node gpu-lab-worker
+gpu ibstat --node gpu-lab-worker
+gpu ibstatus --node gpu-lab-worker
+gpu ibv_devinfo --node gpu-lab-worker -v
 kubectl --context gpu-lab get nodes
 kubectl --context gpu-lab get pods -A
 kubectl --context gpu-lab describe pod -n gpu-lab-demo gpu-lab-scheduling-failure
@@ -173,7 +176,17 @@ kubectl --context gpu-lab describe pod -n gpu-lab-demo gpu-lab-scheduling-failur
 
 `gpu nvidia-smi`는 synthetic 클러스터의 노드마다 실제 `nvidia-smi`에 가까운 별도 블록을 출력합니다. 특정 노드만 확인하려면 `--node <node-name>`을 지정하면 됩니다. 이 명령은 노드에 SSH로 접속하지 않고 Prometheus의 `gpu_lab_*` metric을 조회합니다.
 
+일반 운영 스크립트에서 자주 사용하는 identity, PCI, memory 필드도 CSV로 조회할 수 있습니다. `memory.free`와 `utilization.memory`는 synthetic VRAM 값에서 계산한 값이며, fan/clock처럼 Lab이 관측하지 않는 물리 센서는 `N/A`로 표시됩니다.
+
+```bash
+gpu nvidia-smi \
+  --query-gpu=index,name,uuid,driver_version,pci.bus_id,serial,memory.used,memory.free,memory.total,utilization.gpu,utilization.memory \
+  --format=csv
+```
+
 `nvidia-smi`는 GPU Lab release에 포함된 호환 명령입니다. 실제 NVIDIA driver나 CUDA를 호출하지 않고 Prometheus의 synthetic metric을 표시하므로, 실제 장비의 `nvidia-smi`와 동일한 성능·device file·driver 정보는 제공하지 않습니다.
+
+`ibstat`, `ibstatus`, `ibv_devinfo`도 release와 runtime image에 같은 이름으로 포함됩니다. 호스트에서는 `--node` GPU Lab 확장 옵션으로 worker를 선택하고, exporter Pod 안에서는 옵션 없이 실제 명령처럼 실행합니다. 출력 형식과 rdma-core 옵션은 호환하지만 `/dev/infiniband`나 실제 verbs context를 생성하지는 않습니다.
 
 Grafana 접근 방식은 설치된 Helm chart의 Service를 확인합니다.
 
