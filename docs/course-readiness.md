@@ -9,8 +9,8 @@ gpu-lab의 주제는 강의 상품으로 차별화할 수 있습니다. 일반 K
 ## 촬영 전 P0
 
 1. **배포 가능한 CLI**: 완료. GoReleaser와 tag 기반 GitHub Actions가 macOS/Linux/Windows용 release binary와 SHA-256 checksum을 만들고, [설치·업그레이드·제거 문서](release.md)를 제공합니다.
-2. **재현성 있는 E2E**: 완료. CI에서 create → Device Plugin/DCGM Exporter/Monitoring Helm 설치 → 모든 기본 scenario → verify → reset → destroy를 검증하고, 로컬 `make e2e` runner와 release별 지원 기준을 제공합니다.
-3. **Scenario 성공 조건**: 완료. `gpu-lab verify <scenario>`가 metric, Pod phase, scheduler event를 자동 검증하며 CI acceptance flow에 연결되어 있습니다.
+2. **재현성 있는 E2E(파이프라인 존재 기준)**: CI 파이프라인이 create → Device Plugin/DCGM Exporter/Monitoring Helm 설치 → 모든 기본 scenario → verify → reset → destroy를 검증하고 로컬 `make e2e` runner가 존재한다. 단, 마지막 확인은 이미 커밋된 CI 기준이며 현재 워킹트리의 미커밋 변경에 대한 라이브 E2E 통과 기록은 아니다. 수강생 OS별 클린 설치 검증 기록도 없다.
+3. **Scenario 성공 조건(코드 구현 기준)**: `gpu-lab verify <scenario>`가 metric, Pod phase, scheduler event를 자동 검증하도록 구현돼 있고 단위 테스트가 통과한다. 실클러스터 라이브 환경에서의 verify 전수 통과 여부는 별도 검증 항목이다.
 4. **실제 DCGM 대응표**: 완료. [`docs/metric-mapping.md`](metric-mapping.md)에 `gpu_lab_*`와 `DCGM_FI_*`/`DCGM_EXP_*` metric, label, 단위의 대응을 정리했습니다.
 5. **강의용 접근 UX**: 완료. `gpu helm install <component>` 단계형 설치와 `gpu dashboard`, `gpu metrics`, `gpu scenario inspect`를 제공합니다.
 6. **정직한 synthetic 경계**: 완료. 리소스 annotation, CLI doctor 경고, [`synthetic-vs-real.md`](synthetic-vs-real.md)를 제공합니다.
@@ -27,6 +27,7 @@ gpu-lab의 주제는 강의 상품으로 차별화할 수 있습니다. 일반 K
 - DCGM-compatible metric alias와 실제 Grafana dashboard import 실습
 - scenario별 정답 숨김 모드와 instructor solution 모드
 - 완료: 수강생 결과를 확인하는 `gpu-lab verify <scenario>`
+- 완료: 복구 상태를 별도 판정하는 `gpu verify --recovery [fault]`(게이지·진행도 판정, 누적 counter 0 요구 없음, missing/stale fail-closed). 2026-10-01 실cluster에서 rdma-retry-storm 기준으로 fault verify → reset → recovery verify 전 과정 통과(최신성 게이트 3종 포함 21/21 PASS) 기록은 [capstone-4](course/capstone-4-rdma-allreduce-recovery.md)에 있다
 
 ## 권장 강의 구성
 
@@ -45,14 +46,11 @@ gpu-lab의 주제는 강의 상품으로 차별화할 수 있습니다. 일반 K
 
 OSS에는 cluster, scenario engine, dashboard, 기본 runbook을 모두 공개하는 편이 좋습니다. 유료 강의의 가치는 소스 비공개가 아니라 체계적인 설명, 장애 조사 순서, 실제 운영 사례와의 연결, 과제·퀴즈·capstone, 버전 업데이트에 둡니다.
 
-추천 부가 자료는 다음과 같습니다.
+부가 자료와 강의 준비 현황(2026-09-27):
 
-- GPU incident checklist 한 장 요약
-- PromQL cheat sheet
-- scheduler event 판독표
-- XID별 first response 표
-- synthetic 환경과 실제 GPU cluster 대응표
-- 강의 버전과 호환되는 release tag
+- 문서·단위 검증을 마친 것: [코스 패키지](course/README.md)의 3개 capstone, incident report 양식, GPU/IB first-response 체크시트·런북, lab 지표 기반 PromQL cheat sheet, 실제 환경 증거 수집 템플릿, [`synthetic-vs-real.md`](synthetic-vs-real.md)·[`metric-mapping.md`](metric-mapping.md)의 실제 환경 대응표, 수강생 평가 루브릭과 합격 조건. 이들은 문서와 단위 테스트 수준에서 확인됐을 뿐, 실 강의 진행으로 검증되지는 않았다.
+- 아직 수행하지 않은 것: 라이브 kind E2E에 의한 현행 워킹트리 전체의 재현성 확인, 수강생 OS별(Docker Desktop + macOS/Linux/WSL2) 클린 설치 반복 검증, 실제 GPU 환경에서 수집한 로그·장애 사례, 그리고 영상과 발표 슬라이드. 위 P0 목록도 같은 기준에서 본다: P0는 전체 완료 상태가 아니며, 항목 2·3은 설비·구현 기준의 표기다. CI가 통과해도 수강생 설치 경험의 검증으로 쓰지 않는다.
+- 버전 정합성: 강의 실습 binary는 기본 22 scenario를 포함한 release tag와 대응해야 한다. 로컬에서 확인한 `v0.2.3`과 `v0.2.4` tag 스냅샷에는 모두 GPU/XID 시나리오 16개만 담겨 있었고 `training-worker`, `ibstat` 계열 바이너리도 없었다. 원격 저장소의 최신 release는 확인하지 않았으므로 여기서 어떤 tag를 "최신 release"라고 표현하지 않는다. 분산·fabric 강의 촬영 전에는 해당 기능을 포함한 release를 새로 준비해야 하며, 아직 준비 전이다.
 
 ## 기술 기준 자료
 

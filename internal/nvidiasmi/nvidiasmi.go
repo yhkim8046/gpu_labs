@@ -4,20 +4,18 @@ package nvidiasmi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gpu-lab/gpu-lab/internal/monitoring"
 	"github.com/gpu-lab/gpu-lab/internal/runner"
+	"github.com/gpu-lab/gpu-lab/internal/stateclient"
 )
 
 const (
@@ -65,6 +63,10 @@ type options struct {
 // kubectl. Inside a GPU Lab container it can read the local exporter state via
 // GPU_LAB_STATE_URL, avoiding a kubectl dependency in the runtime image.
 func Run(ctx context.Context, r runner.Runner, args []string, stdout io.Writer) error {
+	return run(ctx, r, args, stdout, stateclient.DefaultClient())
+}
+
+func run(ctx context.Context, r runner.Runner, args []string, stdout io.Writer, stateClient *http.Client) error {
 	parsed, err := parseArgs(args)
 	if err != nil {
 		return err
@@ -77,7 +79,7 @@ func Run(ctx context.Context, r runner.Runner, args []string, stdout io.Writer) 
 		_, err := io.WriteString(stdout, "NVIDIA-SMI synthetic compatibility layer (GPU Lab)\n")
 		return err
 	}
-	gpus, err := collect(ctx, r)
+	gpus, err := collect(ctx, r, stateClient)
 	if err != nil {
 		return err
 	}
@@ -196,9 +198,9 @@ var supportedFields = map[string]bool{
 	"persistence_mode": true, "mig.mode.current": true,
 }
 
-func collect(ctx context.Context, r runner.Runner) ([]GPU, error) {
+func collect(ctx context.Context, r runner.Runner, stateClient *http.Client) ([]GPU, error) {
 	if stateURL := strings.TrimSpace(os.Getenv("GPU_LAB_STATE_URL")); stateURL != "" {
-		return collectState(ctx, stateURL)
+		return collectState(ctx, stateURL, stateClient)
 	}
 	result, err := monitoring.New(r).Query(ctx, metricSelector)
 	if err != nil {
@@ -239,27 +241,31 @@ type stateSnapshot struct {
 	} `json:"readings"`
 }
 
-func collectState(ctx context.Context, endpoint string) ([]GPU, error) {
-	parsed, err := url.Parse(endpoint)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return nil, fmt.Errorf("nvidia-smi: invalid GPU_LAB_STATE_URL %q", endpoint)
+// stateError translates a shared state-client failure into the compatibility
+// layer's stable "nvidia-smi: " error wording.
+func stateError(err error) error {
+	var fetchErr *stateclient.Error
+	if errors.As(err, &fetchErr) {
+		switch fetchErr.Kind {
+		case stateclient.InvalidURL:
+			return fmt.Errorf("nvidia-smi: invalid GPU_LAB_STATE_URL %q", fetchErr.Endpoint)
+		case stateclient.Request:
+			return fmt.Errorf("nvidia-smi: create state request: %w", fetchErr.Err)
+		case stateclient.Transport:
+			return fmt.Errorf("nvidia-smi: query synthetic GPU state: %w", fetchErr.Err)
+		case stateclient.Status:
+			return fmt.Errorf("nvidia-smi: state endpoint returned %s", fetchErr.Status)
+		case stateclient.Decode:
+			return fmt.Errorf("nvidia-smi: decode synthetic GPU state: %w", fetchErr.Err)
+		}
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("nvidia-smi: create state request: %w", err)
-	}
-	client := &http.Client{Timeout: 5 * time.Second}
-	response, err := client.Do(request)
-	if err != nil {
-		return nil, fmt.Errorf("nvidia-smi: query synthetic GPU state: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("nvidia-smi: state endpoint returned %s", response.Status)
-	}
+	return fmt.Errorf("nvidia-smi: %w", err)
+}
+
+func collectState(ctx context.Context, endpoint string, stateClient *http.Client) ([]GPU, error) {
 	var state stateSnapshot
-	if err := json.NewDecoder(response.Body).Decode(&state); err != nil {
-		return nil, fmt.Errorf("nvidia-smi: decode synthetic GPU state: %w", err)
+	if err := stateclient.Fetch(ctx, stateClient, endpoint, &state); err != nil {
+		return nil, stateError(err)
 	}
 	byKey := make(map[string]*GPU, len(state.Readings))
 	for _, reading := range state.Readings {

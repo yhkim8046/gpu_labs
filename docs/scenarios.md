@@ -21,6 +21,33 @@ gpu-lab scenario reset
 kubectl --context gpu-lab get pods -n gpu-lab-demo
 ```
 
+## 학생용 inspect와 solution 출력
+
+`gpu scenario inspect`는 실행 전에 description, duration, target, action과 변경되는 metric 이름을 보여줍니다. 학생이 조사할 값을 먼저 추론할 수 있도록 metric 값은 기본 출력에서 숨깁니다.
+
+```bash
+gpu scenario inspect xid-79
+# xid_code=[hidden; use --solution]
+# health=[hidden; use --solution]
+```
+
+강사용 해설이나 실습 후 정답 확인이 필요할 때만 `--solution`을 사용합니다.
+
+```bash
+gpu scenario inspect xid-79 --solution
+# xid_code=79
+# health=0
+```
+
+외부 Scenario 파일에서도 `--file`과 `--solution`을 함께 사용할 수 있으며 두 옵션의 순서는 상관없습니다.
+
+```bash
+gpu scenario inspect one-gpu-hot --file ./one-gpu-hot.yaml
+gpu scenario inspect one-gpu-hot --solution --file ./one-gpu-hot.yaml
+```
+
+이 모드는 수업 중 의도하지 않은 정답 노출을 줄이는 CLI 표시 정책이지 접근 제어가 아닙니다. Scenario YAML 자체에는 metric 값이 있으므로 평가용 정답을 보안 경계로 취급하지 않습니다.
+
 ## Node/GPU target과 자동 만료
 
 사용자 정의 Scenario는 node label selector와 GPU index를 함께 지정할 수 있습니다. `gpu_indices`를 생략하면 선택된 node의 모든 synthetic GPU에 적용됩니다. `duration`이 끝나면 exporter telemetry와 exporter fault는 자동으로 `normal` 상태로 돌아가며, ConfigMap generation은 마지막 적용 값을 유지합니다.
@@ -51,9 +78,12 @@ gpu metrics --query 'gpu_lab_gpu_temperature_celsius{node="gpu-lab-worker"}'
 
 ## Scenario 목록
 
+기본 scenario는 22개(normal baseline 1개 + 장애 21개)이며, 이는 파일 개수 기준이다. `thermal-escalation`의 timeline 정의와 파서는 구현돼 있고 exporter가 시간 단계로 값을 바꾸는지는 별도로 확인 중이다.
+
 | Scenario | 핵심 학습 포인트 | 대표 증상 |
 |---|---|---|
 | `normal` | 정상 baseline | 낮은 온도, XID 0, health 1 |
+| `thermal-escalation` | 단계형 thermal timeline(YAML 정의·파서만 지원) | 타임스탬프 단계 정의만 YAML에 존재. exporter가 시간 단계로 값을 바꾸는지는 라이브 확인 중 |
 | `gpu-util-high` | 지속적인 GPU 포화 | utilization 95% |
 | `vram-pressure` | VRAM 용량 병목 | memory usage 92% |
 | `thermal-throttling` | 열과 성능 저하의 상관관계 | 96°C, utilization 하락 |
@@ -217,5 +247,11 @@ GPU scenario와 분산학습 scenario를 같은 시간축에서 보는 실습은
     gpu metrics --query 'gpu_lab_training_fabric_delay_seconds'
     gpu scenario reset
     gpu training recover
+    gpu verify --recovery ib-rate-degraded
+
+`gpu verify <scenario>`는 reset 이전의 장애 상태 도달만 판정하고, reset 이후의 정상화 여부는
+`gpu verify --recovery [fault]`가 별도 판정한다. 정상화 판정은 게이지와 진행도(step 증가)로만
+내며 누적 `*_total` 카운터의 0을 요구하지 않는다. 한 바퀴 전체를 시간 예산과 성공조건으로
+풀어 쓴 대표 실습은 [capstone-4-rdma-allreduce-recovery.md](course/capstone-4-rdma-allreduce-recovery.md)다.
 
 Grafana의 GPU Lab InfiniBand / RDMA Fabric 대시보드에서는 node, hca, port, link_layer 변수를 기준으로 port health/state → rate → physical/link error → congestion → RDMA → training correlation 순서로 확인합니다. 값은 모두 synthetic이며 실제 IB/RDMA 성능이나 장비 장애의 증거가 아닙니다. 실제 환경의 ibstat, perfquery, rdma statistic, mlxlink, NCCL topology/log 확인 방법과 각 scenario의 bounded polling·복구 절차는 ib-fabric.md를 참조하세요.

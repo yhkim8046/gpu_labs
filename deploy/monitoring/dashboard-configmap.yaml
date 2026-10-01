@@ -48,7 +48,7 @@ data:
           "id": 2,
           "type": "stat",
           "title": "Average GPU utilization",
-          "description": "Average utilization across the selected node and GPU filters. Sustained saturation can indicate demand or insufficient capacity.",
+          "description": "Average utilization across the selected node and GPU filters; All spans every GPU worker (course default capacity: 3 workers x 8 GPUs = 24 device series). Sustained saturation can indicate demand or insufficient capacity.",
           "gridPos": {
             "h": 5,
             "w": 6,
@@ -381,7 +381,7 @@ data:
           "id": 8,
           "type": "stat",
           "title": "Allocated GPUs",
-          "description": "Number of selected GPU series marked as reserved by a workload.",
+          "description": "Number of selected GPU series currently marked as reserved by a workload. The reading is the live reservation count inside the filter scope, not a fixed device count: with both filters on All it ranges 0-24 (course default capacity 3 GPU workers x 8 GPUs), and with one node selected it ranges 0-8.",
           "gridPos": {
             "h": 5,
             "w": 4,
@@ -1400,7 +1400,7 @@ data:
             },
             "definition": "label_values(gpu_lab_exporter_up, node)",
             "includeAll": true,
-            "label": "Node",
+            "label": "Node (All spans all 3 GPU workers)",
             "multi": true,
             "name": "node",
             "options": [],

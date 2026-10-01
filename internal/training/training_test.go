@@ -3,12 +3,15 @@ package training
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gpu-lab/gpu-lab/internal/testutil"
 )
 
 func TestRankFromPodName(t *testing.T) {
@@ -98,10 +101,8 @@ func TestFabricTargetMatchingAndDefaultDelays(t *testing.T) {
 
 func TestCoordinatorAllReduce(t *testing.T) {
 	c, _ := NewCoordinator(3, time.Second)
-	server := httptest.NewServer(c.Handler())
-	defer server.Close()
-	addr := server.Listener.Addr().String()
-	client := server.Client()
+	client := testutil.HandlerClient(c.Handler())
+	addr := "coordinator.test"
 	var wg sync.WaitGroup
 	results := make(chan float64, 3)
 	for rank := 0; rank < 3; rank++ {
@@ -127,10 +128,8 @@ func TestCoordinatorAllReduce(t *testing.T) {
 
 func TestCoordinatorReturnsCompletedRoundToRetry(t *testing.T) {
 	c, _ := NewCoordinator(2, time.Second)
-	server := httptest.NewServer(c.Handler())
-	defer server.Close()
-	client := server.Client()
-	addr := server.Listener.Addr().String()
+	client := testutil.HandlerClient(c.Handler())
+	addr := "coordinator.test"
 
 	results := make(chan float64, 2)
 	for rank := 0; rank < 2; rank++ {
@@ -156,9 +155,8 @@ func TestCoordinatorReturnsCompletedRoundToRetry(t *testing.T) {
 
 func TestReduceWithRetry(t *testing.T) {
 	c, _ := NewCoordinator(1, time.Second)
-	server := httptest.NewServer(c.Handler())
-	defer server.Close()
-	avg, err := ReduceWithRetry(context.Background(), server.Client(), server.Listener.Addr().String(), reduceRequest{Step: 1, Rank: 0, Gradient: 3}, 100*time.Millisecond)
+	client := testutil.HandlerClient(c.Handler())
+	avg, err := ReduceWithRetry(context.Background(), client, "coordinator.test", reduceRequest{Step: 1, Rank: 0, Gradient: 3}, 100*time.Millisecond)
 	if err != nil || avg != 3 {
 		t.Fatalf("retry reduce: %v, %v", avg, err)
 	}
@@ -269,16 +267,20 @@ func TestWorkerLinkDownAlsoHoldsPeerAtSameCollectiveStep(t *testing.T) {
 }
 
 func TestWorkerCheckpointResume(t *testing.T) {
-	c, _ := NewCoordinator(1, time.Second)
-	server := httptest.NewServer(c.Handler())
-	defer server.Close()
+	client := testutil.HandlerClient(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeReduceResponse(w, 1)
+	}))
 	d := t.TempDir()
-	config := Config{Rank: 0, WorldSize: 1, Pod: "training-0", Node: "node", Job: "job", Coordinator: server.Listener.Addr().String(), ControlFile: filepath.Join(d, "control.json"), CheckpointFile: filepath.Join(d, "checkpoint.json"), StepInterval: time.Millisecond, CheckpointInterval: time.Millisecond, RequestTimeout: time.Second, CoordinatorTimeout: time.Second, TotalSteps: 2}
-	if err := NewWorker(config).Run(context.Background()); err != nil {
+	config := Config{Rank: 1, WorldSize: 2, Pod: "training-1", Node: "node", Job: "job", Coordinator: "coordinator.test", ControlFile: filepath.Join(d, "control.json"), CheckpointFile: filepath.Join(d, "checkpoint.json"), StepInterval: time.Millisecond, CheckpointInterval: time.Millisecond, RequestTimeout: time.Second, CoordinatorTimeout: time.Second, TotalSteps: 2}
+	worker := NewWorker(config)
+	worker.client = client
+	if err := worker.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	config.TotalSteps = 3
-	if err := NewWorker(config).Run(context.Background()); err != nil {
+	worker = NewWorker(config)
+	worker.client = client
+	if err := worker.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	cp, err := LoadCheckpoint(config.CheckpointFile)

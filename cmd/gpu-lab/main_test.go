@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -149,9 +150,28 @@ func TestInspectScenario(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := stdout.String()
-	for _, expected := range []string{"scenario: xid-79", "xid_code=79", "health=0"} {
+	for _, expected := range []string{
+		"scenario: xid-79",
+		"xid_code=[hidden; use --solution]",
+		"health=[hidden; use --solution]",
+	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("output = %q, missing %q", output, expected)
+		}
+	}
+	for _, hidden := range []string{"xid_code=79", "health=0"} {
+		if strings.Contains(output, hidden) {
+			t.Fatalf("output = %q, unexpectedly revealed %q", output, hidden)
+		}
+	}
+
+	var solution bytes.Buffer
+	if err := inspectScenario([]string{"xid-79", "--solution"}, &solution); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"xid_code=79", "health=0"} {
+		if !strings.Contains(solution.String(), expected) {
+			t.Fatalf("solution output = %q, missing %q", solution.String(), expected)
 		}
 	}
 }
@@ -178,9 +198,78 @@ spec:
 	if err := inspectScenario([]string{"targeted", "--file", filename}, &stdout); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"duration: 30s", "gpu.lab/node-id=gpu-node-01", "gpu_indices=1,3"} {
+	for _, expected := range []string{"duration: 30s", "gpu.lab/node-id=gpu-node-01", "gpu_indices=1,3", "gpu_utilization_percent=[hidden; use --solution]"} {
 		if !strings.Contains(stdout.String(), expected) {
 			t.Fatalf("output = %q, missing %q", stdout.String(), expected)
+		}
+	}
+	if strings.Contains(stdout.String(), "gpu_utilization_percent=90") {
+		t.Fatalf("output = %q, unexpectedly revealed the custom metric value", stdout.String())
+	}
+
+	for _, args := range [][]string{
+		{"targeted", "--file", filename, "--solution"},
+		{"targeted", "--solution", "--file", filename},
+	} {
+		var solution bytes.Buffer
+		if err := inspectScenario(args, &solution); err != nil {
+			t.Fatalf("inspectScenario(%v): %v", args, err)
+		}
+		if !strings.Contains(solution.String(), "gpu_utilization_percent=90") {
+			t.Fatalf("solution output = %q, missing custom metric value", solution.String())
+		}
+	}
+}
+
+func TestInspectScenarioHidesFabricMetricValues(t *testing.T) {
+	var student bytes.Buffer
+	if err := inspectScenario([]string{"ib-link-down"}, &student); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"ib_port_up=[hidden; use --solution]",
+		"ib_state=[hidden; use --solution]",
+		"ib_physical_state=[hidden; use --solution]",
+	} {
+		if !strings.Contains(student.String(), expected) {
+			t.Fatalf("student output = %q, missing %q", student.String(), expected)
+		}
+	}
+	if strings.Contains(student.String(), "ib_state=DOWN") {
+		t.Fatalf("student output = %q, unexpectedly revealed the fabric state", student.String())
+	}
+
+	var solution bytes.Buffer
+	if err := inspectScenario([]string{"ib-link-down", "--solution"}, &solution); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"ib_port_up=0", "ib_state=DOWN", "ib_physical_state=DISABLED"} {
+		if !strings.Contains(solution.String(), expected) {
+			t.Fatalf("solution output = %q, missing %q", solution.String(), expected)
+		}
+	}
+}
+
+func TestInspectScenarioValidatesOptionsAndShowsHelp(t *testing.T) {
+	for _, args := range [][]string{
+		{},
+		{"xid-79", "--file"},
+		{"xid-79", "--unknown"},
+		{"xid-79", "--solution", "--solution"},
+		{"xid-79", "--file", "one.yaml", "--file", "two.yaml"},
+	} {
+		if err := inspectScenario(args, io.Discard); err == nil || !strings.Contains(err.Error(), inspectScenarioUsage) {
+			t.Fatalf("inspectScenario(%v) error = %v, want usage error", args, err)
+		}
+	}
+
+	var help bytes.Buffer
+	if err := inspectScenario([]string{"--help"}, &help); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{inspectScenarioUsage, "hidden by default", "--solution"} {
+		if !strings.Contains(help.String(), expected) {
+			t.Fatalf("help = %q, missing %q", help.String(), expected)
 		}
 	}
 }
@@ -310,4 +399,34 @@ type fakePrometheusQuerier struct {
 
 func (f fakePrometheusQuerier) Query(_ context.Context, metric string) (monitoring.QueryResult, error) {
 	return f.results[metric], nil
+}
+
+func TestVerifyRecoveryArgumentValidation(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"no args", []string{"verify"}},
+		{"empty scenario", []string{"verify", ""}},
+		{"two scenarios", []string{"verify", "normal", "xid-48"}},
+		{"unknown fault", []string{"verify", "--recovery", "not-a-fault"}},
+		{"too many recovery args", []string{"verify", "--recovery", "ib-link-down", "extra"}},
+	}
+	for _, tc := range cases {
+		var stdout, stderr bytes.Buffer
+		err := run(context.Background(), tc.args, &stdout, &stderr)
+		if err == nil {
+			t.Fatalf("%s: expected an argument error", tc.name)
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if err := run(context.Background(), []string{"verify", "--recovery", "--help"}, &stdout, &stderr); err != nil {
+		t.Fatalf("verify --recovery --help: %v", err)
+	}
+	out := stdout.String()
+	for _, want := range []string{"fault state", "recovery", "never required to be zero"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("help output missing %q:\n%s", want, out)
+		}
+	}
 }

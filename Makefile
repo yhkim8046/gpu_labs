@@ -10,7 +10,7 @@ build:
 	go build -trimpath -ldflags="$(LDFLAGS)" ./cmd/gpu-lab ./cmd/nvidia-smi ./cmd/ibstat ./cmd/ibstatus ./cmd/ibv-devinfo ./cmd/nvidia-device-plugin ./cmd/dcgm-exporter ./cmd/training-worker
 
 test:
-	go test ./...
+	go test ./cmd/... ./internal/... ./deploy/... ./scenarios/...
 
 fmt:
 	gofmt -w cmd internal deploy scenarios

@@ -15,7 +15,7 @@ gpu-lab은 GPU나 CUDA를 흉내 내는 프로젝트가 아닙니다. Kubernetes
 - Prometheus와 Grafana 기반 GPU monitoring
 - 3-rank synthetic AllReduce 분산학습과 checkpoint/장애 복구 실습
 - synthetic InfiniBand/RDMA HCA·port·fabric 장애와 AllReduce 영향 관측
-- YAML 기반 GPU incident scenario
+- YAML 기반 GPU incident scenario(normal baseline 1개를 포함해 기본 22개, 이 중 장애 시나리오는 21개)
 - scheduling failure, exporter down, thermal, ECC/XID, power throttling, PCIe replay, idle GPU, capacity mismatch, selector mismatch, fragmentation troubleshooting
 
 실제 GPU 장치, NVIDIA driver, CUDA kernel 실행은 범위에 포함하지 않습니다.
@@ -46,6 +46,8 @@ gpu helm list --all-namespaces
 - [Architecture Proposal](docs/architecture.md)
 - [Getting Started](docs/getting-started.md)
 - [Student Guide](docs/student-guide.md)
+- [Course Package](docs/course/README.md)
+- [Troubleshooting](docs/troubleshooting.md)
 - [Release & Installation](docs/release.md)
 - [Scenario Runbook](docs/scenarios.md)
 - [Distributed Training Runbook](docs/distributed-training.md)
@@ -124,6 +126,7 @@ go run ./cmd/gpu-lab training inject straggler --rank 2 --delay 2s
 go run ./cmd/gpu-lab training recover
 go run ./cmd/gpu-lab scenario run ib-rate-degraded
 go run ./cmd/gpu-lab verify ib-rate-degraded
+go run ./cmd/gpu-lab verify --recovery ib-rate-degraded   # reset 이후 정상화만 별도 판정
 go run ./cmd/gpu-lab scenario reset
 ```
 

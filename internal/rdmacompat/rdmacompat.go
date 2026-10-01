@@ -5,21 +5,19 @@ package rdmacompat
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gpu-lab/gpu-lab/internal/monitoring"
 	"github.com/gpu-lab/gpu-lab/internal/runner"
+	"github.com/gpu-lab/gpu-lab/internal/stateclient"
 )
 
 type Tool string
@@ -81,6 +79,10 @@ type ibvDevInfoOptions struct {
 // selects the local exporter state endpoint inside a runtime container. On the
 // host, Prometheus is queried through the gpu-lab Kubernetes context.
 func Run(ctx context.Context, r runner.Runner, tool Tool, args []string, stdout io.Writer) error {
+	return run(ctx, r, tool, args, stdout, stateclient.DefaultClient())
+}
+
+func run(ctx context.Context, r runner.Runner, tool Tool, args []string, stdout io.Writer, stateClient *http.Client) error {
 	switch tool {
 	case IBStat:
 		opts, err := parseIBStat(args)
@@ -91,7 +93,7 @@ func Run(ctx context.Context, r runner.Runner, tool Tool, args []string, stdout 
 			_, err = io.WriteString(stdout, ibstatHelp)
 			return err
 		}
-		devices, err := collectAndSelect(ctx, r, opts.node)
+		devices, err := collectAndSelect(ctx, r, opts.node, stateClient)
 		if err != nil {
 			return commandError(tool, err)
 		}
@@ -105,7 +107,7 @@ func Run(ctx context.Context, r runner.Runner, tool Tool, args []string, stdout 
 			_, err = io.WriteString(stdout, ibstatusHelp)
 			return err
 		}
-		devices, err := collectAndSelect(ctx, r, opts.node)
+		devices, err := collectAndSelect(ctx, r, opts.node, stateClient)
 		if err != nil {
 			return commandError(tool, err)
 		}
@@ -119,7 +121,7 @@ func Run(ctx context.Context, r runner.Runner, tool Tool, args []string, stdout 
 			_, err = io.WriteString(stdout, ibvDevInfoHelp)
 			return err
 		}
-		devices, err := collectAndSelect(ctx, r, opts.node)
+		devices, err := collectAndSelect(ctx, r, opts.node, stateClient)
 		if err != nil {
 			return commandError(tool, err)
 		}
@@ -277,8 +279,8 @@ func positivePort(value string) (int, error) {
 	return port, nil
 }
 
-func collectAndSelect(ctx context.Context, r runner.Runner, node string) ([]Device, error) {
-	devices, local, err := collect(ctx, r)
+func collectAndSelect(ctx context.Context, r runner.Runner, node string, stateClient *http.Client) ([]Device, error) {
+	devices, local, err := collect(ctx, r, stateClient)
 	if err != nil {
 		return nil, err
 	}
@@ -312,9 +314,9 @@ func collectAndSelect(ctx context.Context, r runner.Runner, node string) ([]Devi
 	return devices, nil
 }
 
-func collect(ctx context.Context, r runner.Runner) ([]Device, bool, error) {
+func collect(ctx context.Context, r runner.Runner, stateClient *http.Client) ([]Device, bool, error) {
 	if endpoint := strings.TrimSpace(os.Getenv("GPU_LAB_STATE_URL")); endpoint != "" {
-		devices, err := collectState(ctx, endpoint)
+		devices, err := collectState(ctx, endpoint, stateClient)
 		return devices, true, err
 	}
 	result, err := monitoring.New(r).Query(ctx, metricSelector)
@@ -374,26 +376,32 @@ type stateSnapshot struct {
 	} `json:"fabric"`
 }
 
-func collectState(ctx context.Context, endpoint string) ([]Device, error) {
-	parsed, err := url.Parse(endpoint)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return nil, fmt.Errorf("invalid GPU_LAB_STATE_URL %q", endpoint)
+// stateError translates a shared state-client failure into the RDMA
+// compatibility layer's stable error wording. The caller wraps command-level
+// failures with the tool name via commandError.
+func stateError(err error) error {
+	var fetchErr *stateclient.Error
+	if errors.As(err, &fetchErr) {
+		switch fetchErr.Kind {
+		case stateclient.InvalidURL:
+			return fmt.Errorf("invalid GPU_LAB_STATE_URL %q", fetchErr.Endpoint)
+		case stateclient.Request:
+			return fetchErr.Err
+		case stateclient.Transport:
+			return fmt.Errorf("query synthetic RDMA state: %w", fetchErr.Err)
+		case stateclient.Status:
+			return fmt.Errorf("state endpoint returned %s", fetchErr.Status)
+		case stateclient.Decode:
+			return fmt.Errorf("decode synthetic RDMA state: %w", fetchErr.Err)
+		}
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, err
-	}
-	response, err := (&http.Client{Timeout: 5 * time.Second}).Do(request)
-	if err != nil {
-		return nil, fmt.Errorf("query synthetic RDMA state: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("state endpoint returned %s", response.Status)
-	}
+	return err
+}
+
+func collectState(ctx context.Context, endpoint string, stateClient *http.Client) ([]Device, error) {
 	var snapshot stateSnapshot
-	if err := json.NewDecoder(response.Body).Decode(&snapshot); err != nil {
-		return nil, fmt.Errorf("decode synthetic RDMA state: %w", err)
+	if err := stateclient.Fetch(ctx, stateClient, endpoint, &snapshot); err != nil {
+		return nil, stateError(err)
 	}
 	if snapshot.Node == "" || snapshot.Fabric.HCA == "" || snapshot.Fabric.Port < 1 {
 		return nil, errors.New("state endpoint did not report an RDMA device")
@@ -457,32 +465,58 @@ func filterDevice(devices []Device, hca string, port int) []Device {
 	return selected
 }
 
+// runIBStat reproduces upstream ibstat mode selection: the --port_list and
+// --list_of_cas list modes are handled first (upstream main() checks
+// list_ports before list_only) and ignore the positional port argument. The
+// --short mode maps to ca_stat()'s no_ports flag: upstream never consults the
+// port number when no_ports is set and only prints the ca_dump() header. Only
+// the regular path filters by port and may enter the alone layout.
 func runIBStat(w io.Writer, devices []Device, opts ibstatOptions) error {
 	port := 0
 	if opts.port != "" {
 		port, _ = strconv.Atoi(opts.port)
 	}
-	devices = filterDevice(devices, opts.hca, port)
-	if len(devices) == 0 {
+	scoped := filterDevice(devices, opts.hca, 0)
+	if len(scoped) == 0 {
 		return errors.New("ibstat: CA or port not found")
 	}
+	if opts.listPorts {
+		for _, device := range scoped {
+			fmt.Fprintln(w, guidHex(device.PortGUID))
+		}
+		return nil
+	}
 	if opts.listCAs {
-		for _, name := range uniqueHCAs(devices) {
+		for _, name := range uniqueHCAs(scoped) {
 			fmt.Fprintln(w, name)
 		}
 		return nil
 	}
-	if opts.listPorts {
-		for _, device := range devices {
-			fmt.Fprintln(w, guidHex(device.PortGUID))
+	if opts.short {
+		for i, device := range scoped {
+			if i > 0 {
+				fmt.Fprintln(w)
+			}
+			printIBStatDevice(w, device, true)
 		}
+		return nil
+	}
+	devices = scoped
+	if port > 0 {
+		devices = filterDevice(devices, "", port)
+		if len(devices) == 0 {
+			return errors.New("ibstat: CA or port not found")
+		}
+	}
+	if opts.hca != "" && port > 0 && len(devices) == 1 {
+		printIBStatSolePort(w, devices[0])
 		return nil
 	}
 	for i, device := range devices {
 		if i > 0 {
 			fmt.Fprintln(w)
 		}
-		printIBStatDevice(w, device, opts.short)
+		printIBStatDevice(w, device, false)
 	}
 	return nil
 }
@@ -508,6 +542,25 @@ func printIBStatDevice(w io.Writer, device Device, short bool) {
 	fmt.Fprintf(w, "\t\tCapability mask: %s\n", capabilityMask)
 	fmt.Fprintf(w, "\t\tPort GUID: %s\n", guidHex(device.PortGUID))
 	fmt.Fprintf(w, "\t\tLink layer: %s\n", device.LinkLayer)
+}
+
+// printIBStatSolePort mirrors ibstat's ca_stat() alone mode, entered when a
+// CA name and a port number are given as positional arguments (and -s was not
+// requested): the header gains a colon, and upstream port_dump(alone=1) runs
+// with pre="" and hdrpre="" so the Port header and every field below it are
+// unindented.
+func printIBStatSolePort(w io.Writer, device Device) {
+	fmt.Fprintf(w, "CA: '%s'\n", device.HCA)
+	fmt.Fprintf(w, "Port %d:\n", device.Port)
+	fmt.Fprintf(w, "State: %s\n", ibstatState(device.State))
+	fmt.Fprintf(w, "Physical state: %s\n", ibstatPhysical(device.PhysicalState))
+	fmt.Fprintf(w, "Rate: %s\n", rateNumber(device.RateGbps))
+	fmt.Fprintf(w, "Base lid: %d\n", device.BaseLID)
+	fmt.Fprintln(w, "LMC: 0")
+	fmt.Fprintf(w, "SM lid: %d\n", device.SMLID)
+	fmt.Fprintf(w, "Capability mask: %s\n", capabilityMask)
+	fmt.Fprintf(w, "Port GUID: %s\n", guidHex(device.PortGUID))
+	fmt.Fprintf(w, "Link layer: %s\n", device.LinkLayer)
 }
 
 func runIBStatus(w io.Writer, devices []Device, opts ibstatusOptions) error {
