@@ -14,6 +14,7 @@ import (
 
 	"github.com/gpu-lab/gpu-lab/internal/cluster"
 	"github.com/gpu-lab/gpu-lab/internal/monitoring"
+	"github.com/gpu-lab/gpu-lab/internal/runner"
 )
 
 func TestHelmPassthrough(t *testing.T) {
@@ -291,6 +292,82 @@ func TestParseTrainingRunArgs(t *testing.T) {
 	}
 	if o.Workers != 3 || o.Image != "example/training:v1" || o.Namespace != "lab" || !o.Wait || o.Timeout != 45*time.Second {
 		t.Fatalf("options = %#v", o)
+	}
+}
+
+func TestParseTrainingRunArgsLeavesImageUnsetByDefault(t *testing.T) {
+	o, err := parseTrainingRunArgs(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Image != "" {
+		t.Fatalf("image = %q, want unset until cluster config is read", o.Image)
+	}
+}
+
+func TestResolveTrainingRuntimeImageUsesBoundedLabConfigProbe(t *testing.T) {
+	image, err := resolveTrainingRuntimeImage(context.Background(), "gpu-lab", func(ctx context.Context, name string, args ...string) (string, error) {
+		if name != "kubectl" || strings.Join(args, " ") != "--context gpu-lab get configmap/gpu-lab-config -n kube-system -o jsonpath={.data.runtime-image}" {
+			t.Fatalf("probe = %s %v", name, args)
+		}
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > trainingImageProbeTimeout {
+			t.Fatalf("probe deadline = %v, present=%t", deadline, ok)
+		}
+		return " registry.example/gpu-lab/runtime:v7\n", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if image != "registry.example/gpu-lab/runtime:v7" {
+		t.Fatalf("image = %q", image)
+	}
+}
+
+func TestResolveTrainingRuntimeImageFailsClosed(t *testing.T) {
+	for name, response := range map[string]struct {
+		image string
+		err   error
+	}{
+		"missing value": {},
+		"command error": {err: context.DeadlineExceeded},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := resolveTrainingRuntimeImage(context.Background(), "gpu-lab", func(context.Context, string, ...string) (string, error) {
+				return response.image, response.err
+			})
+			if err == nil {
+				t.Fatal("missing or unreadable runtime image was accepted")
+			}
+		})
+	}
+}
+
+func TestTrainingRunUsesClusterRuntimeImageBeforeApply(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture uses POSIX syntax")
+	}
+	dir := t.TempDir()
+	applyFile := filepath.Join(dir, "apply.json")
+	kubectl := filepath.Join(dir, "kubectl")
+	script := "#!/bin/sh\ncase \"$*\" in\n  *\"get configmap/gpu-lab-config\"*) printf '%s\\n' 'registry.example/gpu-lab/runtime:v7' ;;\n  *\"apply -f -\"*) cat > \"$GPU_LAB_TEST_APPLY\" ;;\n  *) echo \"unexpected kubectl invocation: $*\" >&2; exit 1 ;;\nesac\n"
+	if err := os.WriteFile(kubectl, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("GPU_LAB_TEST_APPLY", applyFile)
+	if err := trainingCommand(context.Background(), runner.New(io.Discard, io.Discard), []string{"run", "--workers", "1"}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := os.ReadFile(applyFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(manifest), `"image":"registry.example/gpu-lab/runtime:v7"`) {
+		t.Fatalf("applied manifest does not use configured runtime image: %s", manifest)
+	}
+	if strings.Contains(string(manifest), `"image":"gpu-lab:dev"`) {
+		t.Fatalf("applied manifest fell back to gpu-lab:dev: %s", manifest)
 	}
 }
 

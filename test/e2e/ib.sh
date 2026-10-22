@@ -2,45 +2,38 @@
 
 set -Eeuo pipefail
 
-repo_root="$(cd -- "$(dirname -- "$0")/../.." && pwd)"
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
+
+# shellcheck source=test/e2e/common.sh
+source "$repo_root/test/e2e/common.sh"
+gpu_e2e_init ib
 
 namespace="${GPU_LAB_TRAINING_NAMESPACE:-gpu-lab-demo}"
 keep_state="${IB_E2E_KEEP_STATE:-0}"
-query_log="$(mktemp "/tmp/gpu-lab-ib-e2e.XXXXXX")"
+gpu_e2e_require_cluster_opt_in "InfiniBand/RDMA E2E"
 
-gpu() {
-  go run ./cmd/gpu-lab "$@"
-}
+training_step_selector="gpu_lab_training_step{namespace=\"$namespace\"}"
+training_rank_selector="gpu_lab_training_rank_up{namespace=\"$namespace\"}"
+training_checkpoint_selector="gpu_lab_training_checkpoint_step{namespace=\"$namespace\"}"
 
 cleanup() {
-  local status="$?"
+  local status=$?
+  trap - EXIT
+  if [[ "$status" -ne 0 ]]; then
+    gpu_e2e_collect_failure_state ib-failure
+    kubectl --context gpu-lab --request-timeout=10s -n "$namespace" get statefulset,pods,configmap -o yaml >>"$E2E_LOG_DIR/ib-failure-cluster-state.txt" 2>&1 || true
+  fi
   if [[ "$status" -ne 0 || "$keep_state" != "1" ]]; then
     gpu scenario reset || true
     gpu training recover --namespace "$namespace" || true
-    gpu verify normal || true
-  fi
-  rm -f "$query_log"
-  exit "$status"
-}
-
-wait_query() {
-  local expression="$1"
-  local description="$2"
-  local attempts=36
-  local attempt
-
-  for attempt in $(seq 1 "$attempts"); do
-    if gpu metrics --query "$expression" >"$query_log" 2>&1; then
-      echo "ok: $description"
-      return 0
+    if [[ "$status" -ne 0 ]]; then
+      gpu verify --recovery || true
     fi
-    sleep 5
-  done
-
-  echo "timed out after 180s: $description" >&2
-  sed -n '1,120p' "$query_log" >&2
-  return 1
+    gpu training reset --namespace "$namespace" || true
+  fi
+  gpu_e2e_remove_temp
+  exit "$status"
 }
 
 require_text() {
@@ -97,69 +90,129 @@ reset_and_check() {
   local scenario="$1"
   gpu scenario reset
   gpu training recover --namespace "$namespace"
-  gpu verify normal
-  wait_query 'min(gpu_lab_ib_port_up) == 1' "$scenario: ports recovered"
-  wait_query 'min(gpu_lab_ib_link_rate_gbps) >= 100' "$scenario: link rate recovered"
-  wait_query 'max(gpu_lab_training_fabric_fault_active) == 0' "$scenario: training fabric fault cleared"
-  wait_query 'sum(changes(gpu_lab_training_step[1m])) > 0' "$scenario: training progress recovered"
+  gpu verify --recovery "$scenario"
+  gpu_wait_metric \
+    gpu_lab_ib_port_up \
+    'min(gpu_lab_ib_port_up) == 1' \
+    "$scenario: all ports recovered" 45 30
+  gpu_wait_metric \
+    gpu_lab_ib_link_rate_gbps \
+    'min(gpu_lab_ib_link_rate_gbps) >= 100' \
+    "$scenario: link rate recovered" 45 30
+  gpu_wait_metric \
+    "gpu_lab_training_rank_up{namespace=\"$namespace\"}" \
+    "sum(gpu_lab_training_rank_up{namespace=\"$namespace\"}) == 3" \
+    "$scenario: all training ranks are up" 45 20
+  local progress_before
+  progress_before="$(gpu_read_fresh_metric "$training_step_selector" "min($training_step_selector)" 20)"
+  gpu_wait_metric_increase \
+    "$training_step_selector" "min($training_step_selector)" "$progress_before" \
+    "$scenario: training progress continues after reset" 45 20
+  gpu_wait_metric \
+    "$training_checkpoint_selector" \
+    "count($training_checkpoint_selector >= 1) == 3" \
+    "$scenario: all rank checkpoints remain published" 45 20
 }
 
 run_scenario() {
   local name="$1"
-  local metric_query="$2"
-  local impact_query="$3"
+  local fault_selector="$2"
+  local fault_condition="$3"
+  local impact_selector="$4"
+  local impact_condition="$5"
 
-  echo "== $name =="
+  echo "== fabric scenario: $name =="
   gpu scenario run "$name"
   gpu verify "$name"
-  wait_query "$metric_query" "$name: fabric metric"
+  gpu_wait_metric "$fault_selector" "$fault_condition" "$name: fabric signature observed" 60 30
+  if [[ -n "$impact_selector" ]]; then
+    gpu_wait_metric "$impact_selector" "$impact_condition" "$name: training impact observed" 60 20
+  fi
   case "$name" in
     ib-link-down) check_link_down_command_outputs ;;
     ib-rate-degraded) check_degraded_command_outputs ;;
   esac
-  if [[ -n "$impact_query" ]]; then
-    wait_query "$impact_query" "$name: training impact"
-  fi
   reset_and_check "$name"
 }
 
 trap cleanup EXIT
 
-echo "checking existing cluster, monitoring, fabric exporter, and training"
+if namespace_resource="$(kubectl --context gpu-lab --request-timeout=10s get namespace "$namespace" -o name --ignore-not-found=true)" && [[ -n "$namespace_resource" ]]; then
+  gpu training reset --namespace "$namespace"
+fi
+training_args=(run --workers 3 --namespace "$namespace" --wait --timeout 5m)
+if [[ -n "${GPU_LAB_TRAINING_IMAGE:-}" ]]; then
+  training_args+=(--image "$GPU_LAB_TRAINING_IMAGE")
+fi
+gpu training "${training_args[@]}"
+
+echo "checking cluster, monitoring, fabric exporter, and three-rank training"
 check_normal_command_outputs gpu-lab-worker
-exporter_pod="$(kubectl --context gpu-lab -n gpu-lab-system get pods -l app.kubernetes.io/name=dcgm-exporter -o jsonpath='{.items[0].metadata.name}')"
-kubectl --context gpu-lab -n gpu-lab-system exec "$exporter_pod" -- ibstat
-kubectl --context gpu-lab -n gpu-lab-system exec "$exporter_pod" -- ibstatus
-kubectl --context gpu-lab -n gpu-lab-system exec "$exporter_pod" -- ibv_devinfo -v
+exporter_pod="$(kubectl --context gpu-lab --request-timeout=10s -n gpu-lab-system get pods -l app.kubernetes.io/name=dcgm-exporter -o jsonpath='{.items[0].metadata.name}')"
+kubectl --context gpu-lab --request-timeout=10s -n gpu-lab-system exec "$exporter_pod" -- ibstat
+kubectl --context gpu-lab --request-timeout=10s -n gpu-lab-system exec "$exporter_pod" -- ibstatus
+kubectl --context gpu-lab --request-timeout=10s -n gpu-lab-system exec "$exporter_pod" -- ibv_devinfo -v
 gpu training status --namespace "$namespace"
-wait_query 'min(gpu_lab_ib_port_up) == 1' "baseline: all synthetic IB ports up"
-wait_query 'min(gpu_lab_ib_link_rate_gbps) >= 100' "baseline: link rate at least 100 Gbps"
-wait_query 'sum(gpu_lab_training_rank_up) >= 3' "baseline: three training ranks ready"
-wait_query 'sum(changes(gpu_lab_training_step[1m])) > 0' "baseline: training is progressing"
+
+gpu_wait_metric \
+  gpu_lab_ib_port_up \
+  'min(gpu_lab_ib_port_up) == 1' \
+  "baseline: all synthetic IB ports up" 45 30
+gpu_wait_metric \
+  gpu_lab_ib_link_rate_gbps \
+  'min(gpu_lab_ib_link_rate_gbps) >= 100' \
+  "baseline: link rate at least 100 Gbps" 45 30
+gpu_wait_metric \
+  "$training_rank_selector" \
+  "count($training_rank_selector == 1) == 3" \
+  "baseline: three training ranks ready" 60 20
+gpu_wait_metric \
+  "$training_step_selector" \
+  "count($training_step_selector >= 1) == 3" \
+  "baseline: all ranks publish progress" 60 20
+gpu_wait_metric \
+  "$training_checkpoint_selector" \
+  "count($training_checkpoint_selector >= 1) == 3" \
+  "baseline: all ranks publish checkpoints" 60 20
+baseline_step="$(gpu_read_fresh_metric "$training_step_selector" "min($training_step_selector)" 20)"
+gpu_wait_metric_increase \
+  "$training_step_selector" "min($training_step_selector)" "$baseline_step" \
+  "baseline: training advances between fresh samples" 45 20
 
 run_scenario \
   "ib-link-down" \
-  "min(gpu_lab_ib_port_up) == 0" \
-  "max(gpu_lab_training_fabric_fault_active) > 0"
+  'gpu_lab_ib_port_up{node="gpu-lab-worker2"}' \
+  'min(gpu_lab_ib_port_up{node="gpu-lab-worker2"}) == 0' \
+  "gpu_lab_training_fabric_fault_active{namespace=\"$namespace\"}" \
+  "max(gpu_lab_training_fabric_fault_active{namespace=\"$namespace\"}) > 0"
 
 run_scenario \
   "ib-rate-degraded" \
-  "min(gpu_lab_ib_link_rate_gbps) < 100" \
-  "max(gpu_lab_training_fabric_delay_seconds) > 0"
+  'gpu_lab_ib_link_rate_gbps{node="gpu-lab-worker3"}' \
+  'min(gpu_lab_ib_link_rate_gbps{node="gpu-lab-worker3"}) < 100' \
+  "gpu_lab_training_fabric_delay_seconds{namespace=\"$namespace\"}" \
+  "max(gpu_lab_training_fabric_delay_seconds{namespace=\"$namespace\"}) > 0"
 
 run_scenario \
   "ib-symbol-errors" \
-  "sum(gpu_lab_ib_symbol_errors_total) > 0" \
-  "sum(gpu_lab_training_fabric_errors_total) > 0"
+  'gpu_lab_ib_symbol_errors_total{node="gpu-lab-worker"}' \
+  'max(gpu_lab_ib_symbol_errors_total{node="gpu-lab-worker"}) > 0' \
+  "gpu_lab_training_fabric_errors_total{namespace=\"$namespace\"}" \
+  "sum(gpu_lab_training_fabric_errors_total{namespace=\"$namespace\"}) > 0"
 
 run_scenario \
   "rdma-retry-storm" \
-  "sum(gpu_lab_rdma_retries_total) > 0" \
-  "sum(gpu_lab_training_fabric_retries_total) > 0"
+  'gpu_lab_rdma_retries_total{node="gpu-lab-worker2"}' \
+  'max(gpu_lab_rdma_retries_total{node="gpu-lab-worker2"}) > 0' \
+  "gpu_lab_training_fabric_retries_total{namespace=\"$namespace\"}" \
+  "sum(gpu_lab_training_fabric_retries_total{namespace=\"$namespace\"}) > 0"
 
 run_scenario \
   "ib-congestion" \
-  "sum(gpu_lab_ib_xmit_wait_total) + sum(gpu_lab_ib_xmit_discards_total) > 0" \
-  "max(gpu_lab_training_fabric_delay_seconds) > 0"
+  'gpu_lab_ib_xmit_wait_total{node="gpu-lab-worker3"}' \
+  'max(gpu_lab_ib_xmit_wait_total{node="gpu-lab-worker3"}) > 0' \
+  "gpu_lab_training_fabric_delay_seconds{namespace=\"$namespace\"}" \
+  "max(gpu_lab_training_fabric_delay_seconds{namespace=\"$namespace\"}) > 0"
 
-echo "gpu-lab synthetic IB/RDMA e2e passed"
+gpu training status --namespace "$namespace"
+echo "gpu-lab five-scenario synthetic IB/RDMA recovery E2E passed"

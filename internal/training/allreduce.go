@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -14,6 +15,7 @@ type reduceRequest struct {
 	Step     int64   `json:"step"`
 	Rank     int     `json:"rank"`
 	Gradient float64 `json:"gradient"`
+	Session  string  `json:"session,omitempty"`
 }
 type reduceResponse struct {
 	Average float64 `json:"average"`
@@ -30,6 +32,7 @@ type Coordinator struct {
 	mu        sync.Mutex
 	rounds    map[int64]*reduceRound
 	completed map[int64]float64
+	session   *trainingSession
 }
 
 func NewCoordinator(world int, timeout time.Duration) (*Coordinator, error) {
@@ -41,7 +44,12 @@ func NewCoordinator(world int, timeout time.Duration) (*Coordinator, error) {
 	}
 	return &Coordinator{world: world, timeout: timeout, rounds: map[int64]*reduceRound{}, completed: map[int64]float64{}}, nil
 }
-func (c *Coordinator) Handler() http.Handler { return http.HandlerFunc(c.handle) }
+func (c *Coordinator) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/allreduce", c.handle)
+	mux.HandleFunc("/join", c.join)
+	return mux
+}
 func (c *Coordinator) handle(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", 405)
@@ -53,6 +61,19 @@ func (c *Coordinator) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.mu.Lock()
+	var changed <-chan struct{}
+	if c.session != nil {
+		if req.Session != c.session.id || !c.session.started {
+			c.mu.Unlock()
+			writeSessionChanged(w)
+			return
+		}
+		changed = c.session.changed
+	} else if req.Session != "" {
+		c.mu.Unlock()
+		writeSessionChanged(w)
+		return
+	}
 	if average, ok := c.completed[req.Step]; ok {
 		c.mu.Unlock()
 		writeReduceResponse(w, average)
@@ -60,12 +81,17 @@ func (c *Coordinator) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	round := c.rounds[req.Step]
 	if round == nil {
+		if len(c.rounds) >= 128 {
+			c.mu.Unlock()
+			http.Error(w, "too many pending rounds", http.StatusServiceUnavailable)
+			return
+		}
 		round = &reduceRound{values: map[int]float64{}, done: make(chan struct{})}
 		c.rounds[req.Step] = round
 	}
-	if _, ok := round.values[req.Rank]; ok {
+	if previous, ok := round.values[req.Rank]; ok && previous != req.Gradient {
 		c.mu.Unlock()
-		http.Error(w, "duplicate rank", 409)
+		http.Error(w, "rank changed its contribution", http.StatusBadRequest)
 		return
 	}
 	round.values[req.Rank] = req.Gradient
@@ -86,12 +112,11 @@ func (c *Coordinator) handle(w http.ResponseWriter, r *http.Request) {
 	select {
 	case <-round.done:
 		writeReduceResponse(w, round.average)
+	case <-changed:
+		writeSessionChanged(w)
 	case <-ctx.Done():
-		c.mu.Lock()
-		if c.rounds[req.Step] == round {
-			delete(c.rounds, req.Step)
-		}
-		c.mu.Unlock()
+		// A timeout belongs to this HTTP attempt. Contributions remain valid
+		// for idempotent retries and must not strand other ranks in the round.
 		http.Error(w, "allreduce timed out", 504)
 	}
 }
@@ -113,6 +138,9 @@ func Reduce(ctx context.Context, client *http.Client, addr string, req reduceReq
 		return 0, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusConflict && resp.Header.Get(sessionChangedHeader) == "1" {
+		return 0, errSessionChanged
+	}
 	if resp.StatusCode != 200 {
 		return 0, fmt.Errorf("allreduce coordinator returned %s", resp.Status)
 	}
@@ -137,6 +165,9 @@ func ReduceWithRetry(ctx context.Context, client *http.Client, addr string, req 
 		cancel()
 		if err == nil {
 			return avg, nil
+		}
+		if errors.Is(err, errSessionChanged) {
+			return 0, err
 		}
 		last = err
 		select {

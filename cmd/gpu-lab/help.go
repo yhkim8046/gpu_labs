@@ -8,12 +8,14 @@ func printHelp(w io.Writer) {
 	_, _ = io.WriteString(w, `gpu — Kubernetes GPU infrastructure lab
 
 Usage:
+  gpu [--mode auto|real|synthetic] <command> [arguments...]
   gpu version
   gpu create [--local|--registry] [--image <image>] [--all]
   gpu destroy
   gpu reset
   gpu doctor
   gpu status
+  gpu inspect [--mode auto|real|synthetic] [--json] [--timeout DURATION]
   gpu dashboard [--port <port>]
   gpu metrics [--query <PromQL>] [--json]
   gpu ibstat [options] [<ca_name> [port_num]]
@@ -28,6 +30,7 @@ Usage:
   gpu training reset
   gpu nvidia-smi [--list-gpus]
   gpu nvidia-smi --query-gpu=<fields> --format=csv[,noheader][,nounits]
+  gpu dcgmi <official-dcgmi-arguments...>
   gpu verify <scenario>
   gpu verify --recovery [fabric-fault]
   gpu context list
@@ -43,6 +46,12 @@ Usage:
 
 Examples:
   gpu create
+  gpu inspect
+  gpu inspect --mode synthetic --json
+  gpu inspect --mode real
+  gpu nvidia-smi --query-gpu=temperature.gpu,memory.used,utilization.gpu --format=csv,noheader,nounits
+  GPU_LAB_MODE=real gpu nvidia-smi -q
+  gpu dcgmi discovery -l
   gpu helm install nvidia-device-plugin
   gpu helm install dcgm-exporter
   gpu helm install monitoring
@@ -50,6 +59,7 @@ Examples:
   gpu helm list --all-namespaces
 
 Image environment:
+  GPU_LAB_MODE=auto|real|synthetic            choose native command mode; inspect --mode overrides it
   GPU_LAB_IMAGE=<image>                         override runtime image
   GPU_LAB_IMAGE_SOURCE=auto|local|registry      choose build or pull mode
   GPU_LAB_RUNTIME_IMAGE_REPOSITORY=<repository> release image repository

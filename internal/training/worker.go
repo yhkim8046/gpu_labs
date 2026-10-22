@@ -2,11 +2,15 @@ package training
 
 import (
 	"context"
+	"crypto/rand"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -98,14 +102,22 @@ type Worker struct {
 	client      *http.Client
 	readControl func() (Control, error)
 	sleep       func(context.Context, time.Duration) error
+	listen      func(string, string) (net.Listener, error)
+	ready       atomic.Bool
 }
 
 func NewWorker(c Config) *Worker {
 	w := &Worker{Config: c, Metrics: &Metrics{}, client: &http.Client{Timeout: c.RequestTimeout}}
 	w.readControl = func() (Control, error) { return ReadControl(c.ControlFile) }
 	w.sleep = sleepContext
+	w.listen = net.Listen
 	return w
 }
+
+// Readiness means this process can serve requests and participate in startup.
+// Collective membership is reported separately by rank_up: requiring all peers
+// here would deadlock a StatefulSet rolling update before rank 0 is replaced.
+func (w *Worker) IsReady() bool { return w.ready.Load() }
 
 func (w *Worker) Run(ctx context.Context) error {
 	cp, err := LoadCheckpoint(w.Config.CheckpointFile)
@@ -120,7 +132,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	w.Metrics.SetStep(cp.Step)
 	w.Metrics.SetSamples(cp.Step * 32)
 	w.Metrics.SetCheckpoint(cp.Step)
-	w.Metrics.SetUp(true)
+	w.Metrics.SetUp(false)
 	w.Metrics.SetFabricMode("normal")
 	w.Metrics.SetFabricActive(false)
 	w.Metrics.SetFabricDelay(0)
@@ -130,13 +142,48 @@ func (w *Worker) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		go func() { _ = http.ListenAndServe(fmt.Sprintf(":%d", w.Config.CoordinatorPort), coord.Handler()) }()
+		listener, err := w.listen("tcp", fmt.Sprintf(":%d", w.Config.CoordinatorPort))
+		if err != nil {
+			return fmt.Errorf("listen for training coordinator: %w", err)
+		}
+		server := &http.Server{Handler: coord.Handler(), ReadHeaderTimeout: 5 * time.Second}
+		defer func() {
+			shutdown, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			if err := server.Shutdown(shutdown); err != nil {
+				_ = server.Close()
+			}
+		}()
+		go func() { _ = server.Serve(listener) }()
 	}
-	start := cp.Step + 1
+	w.ready.Store(true)
+	defer w.ready.Store(false)
+	incarnation := rand.Text()
+	join := func() (joinResponse, error) {
+		w.Metrics.SetUp(false)
+		checkpoint := cp.Step
+		joined, err := joinWithRetry(ctx, w.client, w.Config.Coordinator, joinRequest{Rank: w.Config.Rank, Step: cp.Step, Incarnation: incarnation}, w.Config.RequestTimeout)
+		if err != nil {
+			return joinResponse{}, err
+		}
+		cp.Step = joined.Step
+		if err := SaveCheckpoint(w.Config.CheckpointFile, cp); err != nil {
+			return joinResponse{}, err
+		}
+		w.Metrics.SetStep(cp.Step)
+		w.Metrics.SetCheckpoint(cp.Step)
+		w.Metrics.SetUp(true)
+		fmt.Fprintf(os.Stderr, "training joined rank=%d checkpoint=%d resume_step=%d session=%s\n", w.Config.Rank, checkpoint, cp.Step, joined.Session)
+		return joined, nil
+	}
+	joined, err := join()
+	if err != nil {
+		return err
+	}
 	lastCheckpoint := time.Now()
 	ticker := time.NewTicker(w.Config.StepInterval)
 	defer ticker.Stop()
-	for step := start; w.Config.TotalSteps == 0 || step <= w.Config.TotalSteps; step++ {
+	for step := cp.Step + 1; w.Config.TotalSteps == 0 || step <= w.Config.TotalSteps; {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -180,12 +227,27 @@ func (w *Worker) Run(ctx context.Context) error {
 		}
 		gradient := deterministicGradient(step, w.Config.Rank)
 		requestCtx, cancel := context.WithTimeout(ctx, w.Config.RequestTimeout*8+time.Second)
-		avg, err := ReduceWithRetry(requestCtx, w.client, w.Config.Coordinator, reduceRequest{Step: step, Rank: w.Config.Rank, Gradient: gradient}, w.Config.RequestTimeout)
+		avg, err := ReduceWithRetry(requestCtx, w.client, w.Config.Coordinator, reduceRequest{Step: step, Rank: w.Config.Rank, Gradient: gradient, Session: joined.Session}, w.Config.RequestTimeout)
 		cancel()
 		w.Metrics.SetAllreduce(time.Since(started).Seconds())
 		if err != nil {
 			w.Metrics.AddError()
-			return err
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if errors.Is(err, errSessionChanged) {
+				joined, err = join()
+				if err != nil {
+					return err
+				}
+				step = cp.Step + 1
+			} else {
+				fmt.Fprintf(os.Stderr, "allreduce waiting at step %d: %v\n", step, err)
+				if err := w.wait(time.Second, ctx); err != nil {
+					return err
+				}
+			}
+			continue
 		}
 		loss := deterministicLoss(step, avg)
 		w.Metrics.SetStep(step)
@@ -209,6 +271,7 @@ func (w *Worker) Run(ctx context.Context) error {
 				return fmt.Errorf("crash injection applied: %s", id)
 			}
 		}
+		step++
 	}
 	return nil
 }

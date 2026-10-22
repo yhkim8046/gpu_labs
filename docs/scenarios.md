@@ -78,12 +78,12 @@ gpu metrics --query 'gpu_lab_gpu_temperature_celsius{node="gpu-lab-worker"}'
 
 ## Scenario 목록
 
-기본 scenario는 22개(normal baseline 1개 + 장애 21개)이며, 이는 파일 개수 기준이다. `thermal-escalation`의 timeline 정의와 파서는 구현돼 있고 exporter가 시간 단계로 값을 바꾸는지는 별도로 확인 중이다.
+기본 scenario는 22개(normal baseline 1개 + 장애 21개)이다. `thermal-escalation`은 ConfigMap의 공통 `started_at`을 기준으로 exporter가 baseline → warning → critical → recovery 메트릭을 전환한다. exporter 재시작 후에도 같은 시각을 사용한다. `gpu_lab_scenario_phase`와 `gpu verify thermal-escalation`으로 현재 단계와 메트릭의 일치를 확인한다.
 
 | Scenario | 핵심 학습 포인트 | 대표 증상 |
 |---|---|---|
 | `normal` | 정상 baseline | 낮은 온도, XID 0, health 1 |
-| `thermal-escalation` | 단계형 thermal timeline(YAML 정의·파서만 지원) | 타임스탬프 단계 정의만 YAML에 존재. exporter가 시간 단계로 값을 바꾸는지는 라이브 확인 중 |
+| `thermal-escalation` | 단계형 thermal 관측·자동 복구 | 0s baseline(45°C) → 30s warning(82°C) → 60s critical(96°C, thermal throttle) → 120s recovery, 180s normal 만료 |
 | `gpu-util-high` | 지속적인 GPU 포화 | utilization 95% |
 | `vram-pressure` | VRAM 용량 병목 | memory usage 92% |
 | `thermal-throttling` | 열과 성능 저하의 상관관계 | 96°C, utilization 하락 |

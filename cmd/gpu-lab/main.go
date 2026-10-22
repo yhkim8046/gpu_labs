@@ -9,8 +9,6 @@ import (
 	"os/exec"
 
 	"github.com/gpu-lab/gpu-lab/internal/cluster"
-	"github.com/gpu-lab/gpu-lab/internal/nvidiasmi"
-	"github.com/gpu-lab/gpu-lab/internal/rdmacompat"
 	"github.com/gpu-lab/gpu-lab/internal/runner"
 	"github.com/gpu-lab/gpu-lab/internal/version"
 )
@@ -23,6 +21,10 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	mode, args, err := parseGlobalMode(args, os.Getenv("GPU_LAB_MODE"))
+	if err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		printHelp(stdout)
 		return nil
@@ -45,22 +47,18 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return m.Destroy(ctx)
 	case "doctor":
 		return doctor(ctx, r, stdout)
+	case "inspect":
+		return inspectCommand(ctx, args[1:], mode, stdout)
 	case "status":
 		return m.Status(ctx)
 	case "dashboard":
 		return dashboardCommand(ctx, r, args[1:], stdout)
 	case "metrics":
 		return metricsCommand(ctx, r, args[1:], stdout)
-	case "ibstat":
-		return rdmacompat.Run(ctx, r, rdmacompat.IBStat, args[1:], stdout)
-	case "ibstatus":
-		return rdmacompat.Run(ctx, r, rdmacompat.IBStatus, args[1:], stdout)
-	case "ibv_devinfo":
-		return rdmacompat.Run(ctx, r, rdmacompat.IBVDevInfo, args[1:], stdout)
+	case "ibstat", "ibstatus", "ibv_devinfo", "nvidia-smi", "dcgmi":
+		return nativeCommand(ctx, r, args[0], args[1:], mode, stdout, stderr)
 	case "ib":
 		return errors.New("gpu ib status has been replaced; use gpu ibstat, gpu ibstatus, or gpu ibv_devinfo")
-	case "nvidia-smi":
-		return nvidiasmi.Run(ctx, r, args[1:], stdout)
 	case "verify":
 		return verifyScenario(ctx, r, args[1:], stdout)
 	case "context":

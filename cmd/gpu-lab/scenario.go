@@ -272,8 +272,9 @@ func printMetricOverride(stdout io.Writer, count *int, name, value string, solut
 }
 
 func applyScenario(ctx context.Context, m cluster.Manager, selected scenario.Scenario, stdout io.Writer) error {
-	generation := strconv.FormatInt(time.Now().UnixNano(), 10)
-	data, err := scenario.ConfigMapJSON(selected, generation)
+	startedAt := time.Now()
+	generation := strconv.FormatInt(startedAt.UnixNano(), 10)
+	data, err := scenario.ConfigMapJSONAt(selected, generation, startedAt)
 	if err != nil {
 		return err
 	}

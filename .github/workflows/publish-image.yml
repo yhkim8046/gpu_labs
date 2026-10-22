@@ -1,9 +1,7 @@
 name: Publish runtime image
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_call:
   workflow_dispatch:
 
 permissions:

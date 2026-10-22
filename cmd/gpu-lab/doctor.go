@@ -257,7 +257,7 @@ func checkClusterContext(ctx context.Context, env preflightEnv) []probeResult {
 	}
 	summaries, decodeErr := parseNodeSummaries(raw)
 	if decodeErr != nil {
-		return []probeResult{{Status: statusWarn, Name: "topology", Message: fmt.Sprintf("node probe returned an unexpected reply: %v", bounded(decodeErr))}}
+		return []probeResult{{Status: statusWarn, Name: "topology", Message: fmt.Sprintf("topology is unverified because the node probe returned an unexpected reply: %v", bounded(decodeErr))}}
 	}
 	return evaluateTopology(summaries)
 }
@@ -289,29 +289,48 @@ type nodeSummary struct {
 // decode time, so secret-bearing fields cannot be echoed.
 func parseNodeSummaries(raw string) ([]nodeSummary, error) {
 	var envelope struct {
-		Kind  string `json:"kind"`
-		Items []struct {
-			Metadata struct {
-				Name   string            `json:"name"`
-				Labels map[string]string `json:"labels"`
-			} `json:"metadata"`
-			Status struct {
-				Capacity map[string]string `json:"capacity"`
-			} `json:"status"`
-		} `json:"items"`
+		Kind  string            `json:"kind"`
+		Items []json.RawMessage `json:"items"`
 	}
 	decoder := json.NewDecoder(strings.NewReader(raw))
 	if err := decoder.Decode(&envelope); err != nil {
 		return nil, fmt.Errorf("cannot decode node list: %w", err)
 	}
-	if envelope.Kind != "NodeList" {
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("node probe returned trailing JSON data")
+		}
+		return nil, fmt.Errorf("cannot decode node list: %w", err)
+	}
+	if envelope.Kind != "NodeList" && envelope.Kind != "List" {
 		return nil, fmt.Errorf("node probe returned kind %q", envelope.Kind)
 	}
 	if len(envelope.Items) == 0 {
 		return nil, fmt.Errorf("node probe returned an empty node list")
 	}
 	summaries := make([]nodeSummary, 0, len(envelope.Items))
-	for _, item := range envelope.Items {
+	for index, rawItem := range envelope.Items {
+		var item struct {
+			Kind       string `json:"kind"`
+			APIVersion string `json:"apiVersion"`
+			Metadata   struct {
+				Name   string            `json:"name"`
+				Labels map[string]string `json:"labels"`
+			} `json:"metadata"`
+			Status struct {
+				Capacity map[string]string `json:"capacity"`
+			} `json:"status"`
+		}
+		if err := json.Unmarshal(rawItem, &item); err != nil {
+			return nil, fmt.Errorf("cannot decode node list item %d: %w", index, err)
+		}
+		if item.Kind != "" && item.Kind != "Node" {
+			return nil, fmt.Errorf("node list item %d has kind %q, want Node", index, item.Kind)
+		}
+		if envelope.Kind == "List" && (item.Kind != "Node" || item.APIVersion != "v1") {
+			return nil, fmt.Errorf("node list item %d has kind/apiVersion %q/%q, want Node/v1", index, item.Kind, item.APIVersion)
+		}
 		name := item.Metadata.Name
 		if name == "" {
 			return nil, fmt.Errorf("node probe returned an item without a name")

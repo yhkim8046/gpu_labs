@@ -76,7 +76,7 @@ GPU_LAB_HELM_CHART_VERSION=87.21.0 gpu helm install monitoring
 gpu create --registry
 
 # 특정 release image 사용
-gpu create --registry --image ghcr.io/<github-owner>/gpu-lab-runtime:1.0.0
+gpu create --registry --image ghcr.io/<github-owner>/gpu-lab-runtime:0.3.0
 
 # local image build 사용
 gpu create --local
@@ -143,7 +143,9 @@ gpu scenario run gpu-capacity-mismatch
 gpu scenario run node-selector-mismatch
 gpu scenario run gpu-fragmentation
 gpu verify gpu-fragmentation
-gpu scenario run thermal-escalation   # YAML 단계 정의만 확인, exporter 시간 단계 동작은 라이브 확인 중([Scenario Runbook](scenarios.md) 각주)
+gpu scenario run thermal-escalation   # 3분 동안 baseline → warning → critical → recovery
+gpu metrics --query gpu_lab_scenario_phase
+gpu verify thermal-escalation
 gpu scenario run ib-link-down
 gpu scenario run ib-rate-degraded
 gpu scenario run ib-symbol-errors

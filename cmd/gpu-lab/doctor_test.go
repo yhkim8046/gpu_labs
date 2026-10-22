@@ -80,6 +80,10 @@ func nodeListJSON(entries ...string) string {
 	return `{"kind":"NodeList","apiVersion":"v1","items":[` + strings.Join(entries, ",") + `]}`
 }
 
+func kubectlListJSON(entries ...string) string {
+	return `{"kind":"List","apiVersion":"v1","items":[` + strings.Join(entries, ",") + `]}`
+}
+
 func nodeItem(name string, labels, capacity string) string {
 	if labels == "" {
 		labels = "{}"
@@ -524,7 +528,15 @@ func TestDoctorDefaultsToManualDiskGuidanceWithoutInjectedStatfs(t *testing.T) {
 }
 
 func TestDoctorRejectsMalformedNodeProbe(t *testing.T) {
-	for _, payload := range []string{"not json at all", `{"kind":"PodList","items":[]}`, `{"kind":"NodeList","items":[]}`} {
+	for _, payload := range []string{
+		"not json at all",
+		`{"kind":"PodList","items":[]}`,
+		`{"kind":"NodeList","items":[]}`,
+		`{"kind":"NodeList","items":[{"metadata":{"name":"node"}}]} trailing`,
+		`{"kind":"NodeList","items":[{"kind":"Pod","metadata":{"name":"node"}}]}`,
+		`{"kind":"List","apiVersion":"v1","items":[{"kind":"Pod","apiVersion":"v1","metadata":{"name":"node"}}]}`,
+		`{"kind":"List","apiVersion":"v1","items":["not an object"]}`,
+	} {
 		f := newFakePreflight()
 		f.responders = healthyResponders(payload)
 		output, err := runDoctorWith(t, f)
@@ -532,6 +544,26 @@ func TestDoctorRejectsMalformedNodeProbe(t *testing.T) {
 			t.Fatalf("malformed node payload is a warning: %v", err)
 		}
 		mustContain(t, output, "[warn] topology")
+		mustContain(t, output, "unverified")
+		mustNotContain(t, output, "[ready] topology")
+	}
+}
+
+func TestParseNodeSummariesAcceptsKubectlListAndNodeList(t *testing.T) {
+	const kubectlNode = `{"kind":"Node","apiVersion":"v1","metadata":{"name":"gpu-lab-worker-01","labels":{"gpu.lab/type":"fake"}},"status":{"capacity":{"nvidia.com/gpu":"8"}}}`
+	for name, payload := range map[string]string{
+		"kubectl List":           kubectlListJSON(kubectlNode),
+		"NodeList compatibility": nodeListJSON(nodeItem("gpu-lab-worker-01", `{"gpu.lab/type":"fake"}`, `{"nvidia.com/gpu":"8"}`)),
+	} {
+		t.Run(name, func(t *testing.T) {
+			summaries, err := parseNodeSummaries(payload)
+			if err != nil {
+				t.Fatalf("parseNodeSummaries() error = %v", err)
+			}
+			if len(summaries) != 1 || summaries[0].Name != "gpu-lab-worker-01" || summaries[0].GPUCount != 8 {
+				t.Fatalf("summaries = %#v", summaries)
+			}
+		})
 	}
 }
 

@@ -15,6 +15,8 @@ import (
 
 type trainingRunOptions struct{ trainingjob.Options }
 
+const trainingImageProbeTimeout = 8 * time.Second
+
 func trainingCommand(ctx context.Context, r runner.Runner, args []string, stdout io.Writer) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
 		printTrainingHelp(stdout)
@@ -26,6 +28,12 @@ func trainingCommand(ctx context.Context, r runner.Runner, args []string, stdout
 		o, err := parseTrainingRunArgs(args[1:])
 		if err != nil {
 			return err
+		}
+		if strings.TrimSpace(o.Image) == "" {
+			o.Image, err = resolveTrainingRuntimeImage(ctx, client.Context, r.Output)
+			if err != nil {
+				return err
+			}
 		}
 		workCtx, cancel := context.WithTimeout(ctx, o.Timeout)
 		defer cancel()
@@ -87,7 +95,7 @@ func trainingCommand(ctx context.Context, r runner.Runner, args []string, stdout
 }
 
 func parseTrainingRunArgs(args []string) (trainingRunOptions, error) {
-	o := trainingRunOptions{Options: trainingjob.Options{Workers: 3, Image: "gpu-lab:dev", Namespace: trainingjob.Namespace, Timeout: 5 * time.Minute}}
+	o := trainingRunOptions{Options: trainingjob.Options{Workers: 3, Namespace: trainingjob.Namespace, Timeout: 5 * time.Minute}}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--workers":
@@ -101,7 +109,7 @@ func parseTrainingRunArgs(args []string) (trainingRunOptions, error) {
 			}
 			o.Workers = n
 		case "--image":
-			if i+1 >= len(args) || args[i+1] == "" {
+			if i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" {
 				return o, errors.New("image is required")
 			}
 			i++
@@ -131,6 +139,20 @@ func parseTrainingRunArgs(args []string) (trainingRunOptions, error) {
 		}
 	}
 	return o, nil
+}
+
+func resolveTrainingRuntimeImage(ctx context.Context, kubeContext string, output func(context.Context, string, ...string) (string, error)) (string, error) {
+	probeCtx, cancel := context.WithTimeout(ctx, trainingImageProbeTimeout)
+	defer cancel()
+	image, err := output(probeCtx, "kubectl", "--context", kubeContext, "get", "configmap/gpu-lab-config", "-n", "kube-system", "-o", "jsonpath={.data.runtime-image}")
+	if err != nil {
+		return "", fmt.Errorf("read training runtime image from kube-system/gpu-lab-config: %w", err)
+	}
+	image = strings.TrimSpace(image)
+	if image == "" {
+		return "", errors.New("gpu-lab-config in kube-system has no data.runtime-image; run gpu create again")
+	}
+	return image, nil
 }
 
 func parseTrainingNamespaceArgs(args []string) (string, error) {

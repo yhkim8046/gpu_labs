@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -112,22 +113,39 @@ func syncScenario(ctx context.Context, client kubernetes.Interface, model *Model
 	if cm.ResourceVersion == *lastResourceVersion {
 		return nil
 	}
-	data := cm.Data["scenario.yaml"]
-	if data == "" {
-		return errors.New("scenario ConfigMap has no scenario.yaml")
-	}
-	parsed, err := scenario.Parse([]byte(data))
+	name, err := applyScenarioConfig(model, cm.Data, cm.ResourceVersion)
 	if err != nil {
 		return err
 	}
-	generation := cm.Data["generation"]
-	if generation == "" {
-		generation = cm.ResourceVersion
-	}
-	model.Apply(parsed, generation)
 	*lastResourceVersion = cm.ResourceVersion
-	log.Printf("applied scenario=%s generation=%s", parsed.Name(), generation)
+	log.Printf("applied scenario=%s generation=%s", name, model.Snapshot().Generation)
 	return nil
+}
+
+func applyScenarioConfig(model *Model, config map[string]string, resourceVersion string) (string, error) {
+	data := config[scenario.ScenarioDataKey]
+	if data == "" {
+		return "", errors.New("scenario ConfigMap has no scenario.yaml")
+	}
+	parsed, err := scenario.Parse([]byte(data))
+	if err != nil {
+		return "", err
+	}
+	generation := config[scenario.GenerationDataKey]
+	if generation == "" {
+		generation = resourceVersion
+	}
+	startedAt := model.currentTime()
+	if raw := config[scenario.StartedAtDataKey]; raw != "" {
+		startedAt, err = time.Parse(time.RFC3339Nano, raw)
+		if err != nil {
+			return "", fmt.Errorf("invalid scenario started_at: %w", err)
+		}
+	} else if len(parsed.Spec.Timeline) > 0 {
+		return "", errors.New("timeline scenario has no started_at; reapply it with gpu scenario run")
+	}
+	model.ApplyAt(parsed, generation, startedAt)
+	return parsed.Name(), nil
 }
 
 func EncodeState(model *Model) ([]byte, error) {

@@ -37,6 +37,13 @@ spec:
         - name: device-plugin
           image: gpu-lab:dev
           imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 256Mi
           command: ["/usr/local/bin/nvidia-device-plugin"]
           env:
             - name: NODE_NAME

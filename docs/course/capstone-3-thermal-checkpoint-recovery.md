@@ -3,7 +3,7 @@
 ## 학습목표
 
 - 고정값 thermal 시나리오(thermal-throttling, power-throttle)의 온도·전력·throttle·utilization fixture를 읽고, 시나리오 manifest와 exporter 출력을 대조해 thermal 진행을 설명한다.
-- lab이 "값이 고정된 시나리오"와 "설계만 되고 runtime에 연결되지 않은 timeline 시나리오"를 구분한다. 후자는 관측 사례가 아니라 설계 사례로 다룬다.
+- 고정값 시나리오와 공통 시작 시각을 사용하는 단계형 timeline을 구분하고, 단계별 메트릭과 자동 복구를 관찰한다.
 - `duration` 자동 만료는 lab이 만드는 상태 전이이며 수강생의 조치 성과가 아니다. 이 구분 없이 복구를 주장하지 않는다.
 - 분산 학습에서 **환경 복구**(메트릭 정상화)와 **작업 복구**(crash 이후 checkpoint 재개)를 서로 다른 명령·서로 다른 데이터로 확인한다.
 
@@ -18,29 +18,28 @@
 
 | 구간 | 분 | 활동 |
 | --- | --- | --- |
-| 도입 | 15 | timeline 설계(thermal-escalation)와 실제 관측되는 고정 시나리오의 차이 설명 |
+| 도입 | 15 | 단계형 thermal-escalation과 고정 시나리오의 차이 설명 |
 | thermal 관측 | 25 | thermal-throttling/power-throttle 고정 값으로 온도·전력·throttle 확인, verify로 기계 판정 |
 | 작업 복구 | 35 | worker-crash → container 재시작 → checkpoint 재개 관찰, recover로 정리 |
 | 판정 | 25 | 환경 복구 × 작업 복구 4분면표 |
 | 제출 | 20 | 보고서 |
 
-## 실습 1 — thermal: 관측에 실제로 연결된 시나리오만 사용
+## 실습 1 — 단계형 thermal 관측
 
-직접 코드 확인 결과(2026-09-27): `thermal-escalation`의 timeline 파싱과 4-phase 검사는 `internal/scenario`에 구현되어 있지만, exporter는 적용 시점의 `spec.metrics`만 읽어 telemetry를 만든다(`internal/exporter/model.go`의 `Apply → buildReadings/buildFabricReading`). phase별 값을 시각에 따라 고치는 `PhaseAt` 경로는 exporter에 연결되어 있지 않다. 그래서 **실습에서 "3분 동안 82도→96도로 변하는 것을 관측"했다고 쓰면 안 된다** — runtime이 그 값을 내보내지 않기 때문이다.
-
-`thermal-escalation`은 다루는 법:
+`thermal-escalation`은 ConfigMap의 공통 `started_at`을 기준으로 모든 exporter가 같은 단계를 계산한다. 0초 baseline(45°C), 30초 warning(82°C), 60초 critical(96°C, thermal throttle), 120초 recovery(45°C), 180초 duration 만료 후 normal 순서다. exporter가 늦게 시작하거나 재시작해도 현재 단계로 합류한다.
 
 ```bash
-gpu scenario inspect thermal-escalation   # 설계/스키마 확인용(manifest는 scenarios/thermal-escalation.yaml)
+gpu scenario inspect thermal-escalation --solution
 gpu scenario run thermal-escalation
-gpu metrics --query 'gpu_lab_scenario_info'      # 시나리오 이름만 바뀐 것이 보인다
-gpu verify thermal-escalation                     # contract case가 없어 실패한다
-gpu scenario reset
+gpu metrics --query 'gpu_lab_scenario_phase'
+gpu metrics --query 'gpu_lab_gpu_temperature_celsius'
+gpu metrics --query 'gpu_lab_gpu_throttle_active'
+gpu verify thermal-escalation
 ```
 
-thermal-escalation은 `duration: 3m`을 가진 몇 안 되는 시나리오다. reset을 기다리지 않으면 `duration` 만료(설계 시각) 시점에 exporter가 normal fixture로 되돌리고, `gpu_lab_scenario_info`의 label이 normal로 변하는 것이 관측된다. 그 값 전이는 lab의 자동 만료일 뿐이며, "수강생이 복구했다"의 증거가 되지 않는다.
+각 단계에서 시각, phase, 온도·전력·utilization·VRAM·throttle을 기록한다. `gpu verify thermal-escalation`은 최신 phase와 24개 GPU 메트릭이 일치하는지 한 질의로 확인한다. 만료 후에는 `gpu verify normal`로 상태를 확인한다. phase별 자동 전이는 lab이 만드는 결과이며 수강생의 복구 조치로 해석하지 않는다. 수동 복구 증거는 `gpu scenario reset` 이후 따로 수집한다.
 
-`gpu verify`의 시나리오별 계약 목록(`internal/verification/verification.go`)에 `thermal-escalation` 전용 case도 없다. 이 시나리오는 "parser가 받고 검증하는 단계까지"를 확인하는 설계 사례로 두고, 관측 실습은 아래처럼 verify 계약이 있는 고정 시나리오 두 개로 한다.
+아래 고정 시나리오를 함께 사용해 시간 전이와 고정 fixture의 차이를 비교한다.
 
 ### 고정 시나리오 1 — thermal-throttling (temperature fixture 96)
 
@@ -68,18 +67,18 @@ gpu verify power-throttle
 gpu scenario reset
 ```
 
-두 시나리오 모두 값은 `scenarios/thermal-throttling.yaml`, `scenarios/power-throttle.yaml`에 고정된 fixture이고, 시나리오를 reset할 때까지 같은 값이 반복 scrape된다. 시간이 지나면서 값이 변하는 경과 자체를 lab이 재현하지 않는다는 것을 보고서에 명시한다. 고정 시나리오에는 `duration`이 없으므로 자동 만료도 없고 reset이 유일한 되돌림이다.(`duration` 기반 자동 만료는 `duration`이 설정된 시나리오의 `expiresAt` 경로로 구현되어 있다 — thermal-escalation처럼 값이 phase에 연결되지 않는 시나리오에서 `gpu_lab_scenario_info`의 normal 전이로 확인할 수 있다. 이 자동 전이는 lab이 만든 결과이지 수강생의 조치가 아니다.)
+두 시나리오 모두 값은 `scenarios/thermal-throttling.yaml`, `scenarios/power-throttle.yaml`에 고정된 fixture이고, 시나리오를 reset할 때까지 같은 값이 반복 scrape된다. 시간이 지나면서 값이 변하는 경과 자체를 lab이 재현하지 않는다는 것을 보고서에 명시한다. 고정 시나리오에는 `duration`이 없으므로 자동 만료도 없고 reset이 유일한 되돌림이다.(`duration` 기반 자동 만료는 `duration`이 설정된 시나리오의 `expiresAt` 경로로 구현되어 있다 — thermal-escalation의 180초 만료에서 `gpu_lab_scenario_info`의 normal 전이로 확인할 수 있다. 이 자동 전이는 lab이 만든 결과이지 수강생의 조치가 아니다.)
 
 ## 실습 2 — crash 이후 checkpoint 재개(worker-crash/recover)
 
 straggler 주입은 delay만 만든다(`gpu_lab_training_straggler_active`가 1이 되고 allreduce 지연 증가). **restart나 checkpoint 재개는 만들지 않는다.** 재개 증거는 worker-crash로 만든다.
 
 ```bash
-gpu training run --workers 3 --image gpu-lab:dev --namespace gpu-lab-demo --wait
+gpu training run --workers 3 --namespace gpu-lab-demo --wait
 gpu training status --namespace gpu-lab-demo
 ```
 
-(`gpu-lab:dev`는 기본값이다. registry 이미지로 클러스터를 만들었다면 `gpu status`가 표시하는 런타임 이미지로 `--image`를 바꾼다. 이미지 당김 실패는 [troubleshooting.md](../troubleshooting.md#3-kind-클러스터-생성과-중복) 참조.)
+(`--image`를 생략하면 cluster 설정의 runtime image를 사용한다. 명시적으로 바꾸려면 `--image`를 지정한다. 이미지 당김 실패는 [troubleshooting.md](../troubleshooting.md#3-kind-클러스터-생성과-중복) 참조.)
 
 기준선 기록 — Pod의 restartCount와 step/checkpoint를 함께 남긴다:
 

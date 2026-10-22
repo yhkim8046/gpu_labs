@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gpu-lab/gpu-lab/internal/inspection"
 	"github.com/gpu-lab/gpu-lab/internal/monitoring"
 	"github.com/gpu-lab/gpu-lab/internal/runner"
 	"github.com/gpu-lab/gpu-lab/internal/stateclient"
@@ -70,6 +71,9 @@ func run(ctx context.Context, r runner.Runner, args []string, stdout io.Writer, 
 	parsed, err := parseArgs(args)
 	if err != nil {
 		return err
+	}
+	if r.Stderr != nil {
+		fmt.Fprintf(r.Stderr, "%s (mode=synthetic)\n", inspection.Disclaimer)
 	}
 	if parsed.help {
 		_, err := io.WriteString(stdout, helpText+"\n")

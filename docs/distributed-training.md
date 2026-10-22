@@ -74,6 +74,10 @@ rank 1 worker를 중단시킵니다.
 
 ## 복구와 정리
 
+worker는 시작할 때 모든 rank와 다시 만나 사용 가능한 checkpoint 중 가장 낮은 step에서 함께 재개합니다. rank 0 coordinator가 재시작해 이전 AllReduce 캐시를 잃어도 같은 절차를 사용합니다. 재개 시 step이 잠시 낮아질 수 있으므로 `rank_up=1`만으로 성공을 판단하지 않고, 이후 모든 rank의 step과 checkpoint가 계속 증가하는지 확인합니다. 한 HTTP 요청의 timeout은 다른 rank의 기여를 삭제하지 않으며, 통신 장애가 길어지면 같은 step에서 재시도합니다. Pod readiness는 로컬 초기화 완료를 뜻하고, 전체 rank의 합류는 `rank_up`으로 따로 관측합니다. 이 구분으로 coordinator를 마지막에 교체하는 StatefulSet 순차 업데이트가 멈추지 않게 합니다.
+
+checkpoint는 Pod의 `emptyDir`에 저장합니다. 같은 Pod의 container 재시작에서는 유지되지만 Pod 삭제나 노드 교체 이후의 영속 저장을 보장하지 않습니다. 시작 로그의 `rank`, `checkpoint`, `resume_step`으로 재개 지점을 확인합니다.
+
 실습 제어 상태를 정상화하고 checkpoint 기반 재개를 확인합니다.
 
     gpu training recover

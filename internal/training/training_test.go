@@ -267,7 +267,15 @@ func TestWorkerLinkDownAlsoHoldsPeerAtSameCollectiveStep(t *testing.T) {
 }
 
 func TestWorkerCheckpointResume(t *testing.T) {
-	client := testutil.HandlerClient(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	client := testutil.HandlerClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/join" {
+			var req joinRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Error(err)
+			}
+			_ = json.NewEncoder(w).Encode(joinResponse{Session: "resume-test", Step: req.Step})
+			return
+		}
 		writeReduceResponse(w, 1)
 	}))
 	d := t.TempDir()
