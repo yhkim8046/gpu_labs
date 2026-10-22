@@ -340,6 +340,33 @@ func TestServeRecoversFromMissingAndReplacedSockets(t *testing.T) {
 	}
 }
 
+func TestSocketIdentityIncludesModificationTime(t *testing.T) {
+	socket := filepath.Join(shortSocketDirectory(t), "identity.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	before, err := identifySocket(socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := before.info.ModTime().Add(time.Second)
+	if err := os.Chtimes(socket, changed, changed); err != nil {
+		t.Fatal(err)
+	}
+	after, err := identifySocket(socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(before.info, after.info) {
+		t.Fatal("test must retain the same device/inode")
+	}
+	if before.sameAs(after) {
+		t.Fatal("a new timestamp was mistaken for the previous socket generation")
+	}
+}
+
 func TestServeCancellationStopsActiveListAndWatchPromptly(t *testing.T) {
 	directory := shortSocketDirectory(t)
 	kubelet := startFakeKubelet(t, directory, 0, true)

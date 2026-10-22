@@ -117,8 +117,29 @@ gpu helm install dcgm-exporter
 gpu helm install monitoring
 gpu helm install all
 gpu helm list --all-namespaces
+gpu doctor
 
 gpu verify normal
+gpu inspect --mode synthetic --json --timeout 30s >"$E2E_LOG_DIR/inspection.json"
+python3 - "$E2E_LOG_DIR/inspection.json" <<'PY'
+import json, sys
+with open(sys.argv[1]) as source:
+    report = json.load(source)
+assert report['mode'] == 'synthetic' and report['unofficial'] is True, report
+identities = [check for check in report['checks'] if check['name'].endswith(' synthetic identity')]
+assert len(identities) == 24, identities
+assert all(check['status'] not in ('fail', 'unavailable') for check in report['checks']), report
+print('inspection JSON: 24 synthetic GPUs and no unavailable/failed checks')
+PY
+gpu nvidia-smi --query-gpu=temperature.gpu,memory.used,utilization.gpu --format=csv,noheader,nounits >"$E2E_LOG_DIR/gpu.csv"
+python3 - "$E2E_LOG_DIR/gpu.csv" <<'PY'
+import csv, math, sys
+with open(sys.argv[1]) as source:
+    rows = list(csv.reader(source))
+assert len(rows) == 24 and all(len(row) == 3 for row in rows), rows
+assert all(math.isfinite(float(value.strip())) for row in rows for value in row), rows
+print('CSV stdout: 24 rows and 3 finite numeric columns')
+PY
 gpu nvidia-smi --list-gpus
 exporter_pod="$(kubectl --context gpu-lab --request-timeout=10s -n gpu-lab-system get pods -l app.kubernetes.io/name=dcgm-exporter -o jsonpath='{.items[0].metadata.name}')"
 kubectl --context gpu-lab --request-timeout=10s -n gpu-lab-system exec "$exporter_pod" -- nvidia-smi --list-gpus

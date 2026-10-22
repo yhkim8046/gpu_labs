@@ -31,7 +31,9 @@ type socketIdentity struct {
 }
 
 func (identity socketIdentity) sameAs(other socketIdentity) bool {
-	return identity.info != nil && other.info != nil && os.SameFile(identity.info, other.info)
+	// Linux may recycle an unlinked socket's inode immediately. Inode/device
+	// equality alone can mistake a new server generation for the old socket.
+	return identity.info != nil && other.info != nil && os.SameFile(identity.info, other.info) && identity.info.ModTime().Equal(other.info.ModTime())
 }
 
 type Plugin struct {
