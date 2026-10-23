@@ -8,7 +8,7 @@ gpu-lab의 주제는 강의 상품으로 차별화할 수 있습니다. 일반 K
 
 ## 촬영 전 P0
 
-1. **배포 가능한 CLI**: GoReleaser와 tag 기반 GitHub Actions가 macOS/Linux/Windows용 release binary와 SHA-256 checksum을 만들도록 구성되어 있고, [설치·업그레이드·제거 문서](release.md)를 제공합니다. v0.3.0 target의 실제 publish와 설치 검증은 아직 완료되지 않았습니다.
+1. **배포 가능한 CLI**: GoReleaser와 tag 기반 GitHub Actions가 macOS/Linux/Windows용 release binary와 SHA-256 checksum을 만들도록 구성되어 있고, [설치·업그레이드·제거 문서](release.md)를 제공합니다. 강의 기준 `v0.3.0`의 실제 공개 여부는 [Release 페이지](https://github.com/yhkim8046/gpu_labs/releases/tag/v0.3.0), archive·설치 검증은 해당 tag의 Release workflow 결과로 확인합니다.
 2. **재현성 있는 E2E(파이프라인 존재 기준)**: CI 파이프라인이 create → Device Plugin/DCGM Exporter/Monitoring Helm 설치 → 모든 기본 scenario → verify → reset → destroy를 검증하고 로컬 `make e2e` runner가 존재한다. 결과는 해당 commit의 PR/CI run에서 확인한다. 수강생 OS별 클린 설치 경험은 CI 통과와 별도로 검증한다.
 3. **Scenario 성공 조건(코드 구현 기준)**: `gpu-lab verify <scenario>`가 metric, Pod phase, scheduler event를 자동 검증하도록 구현돼 있고 단위 테스트가 통과한다. 실클러스터 라이브 환경에서의 verify 전수 통과 여부는 별도 검증 항목이다.
 4. **실제 DCGM 대응표**: 완료. [`docs/metric-mapping.md`](metric-mapping.md)에 `gpu_lab_*`와 `DCGM_FI_*`/`DCGM_EXP_*` metric, label, 단위의 대응을 정리했습니다.
@@ -50,7 +50,7 @@ OSS에는 cluster, scenario engine, dashboard, 기본 runbook을 모두 공개�
 
 - 문서·단위 검증을 마친 것: [코스 패키지](course/README.md)의 4개 capstone, incident report 양식, GPU/IB first-response 체크시트·런북, lab 지표 기반 PromQL cheat sheet, 실제 환경 증거 수집 템플릿, [`synthetic-vs-real.md`](synthetic-vs-real.md)·[`metric-mapping.md`](metric-mapping.md)의 실제 환경 대응표, 수강생 평가 루브릭과 합격 조건. 실 강의 진행 검증은 별도다.
 - 추가 검증 과제: 수강생 OS별(Docker Desktop + macOS/Linux/WSL2) 클린 설치 반복 검증, 실제 GPU 환경에서 수집한 로그·장애 사례, 그리고 영상과 발표 슬라이드. 현행 kind E2E와 snapshot archive 결과는 PR/CI run으로 기록하고, 공개 archive와 설치 기반 검증은 release workflow에서 따로 확인한다. CI가 통과해도 수강생 설치 경험이나 실제 GPU 동작의 증거로 쓰지 않는다.
-- 버전 정합성: 강의 실습 binary는 기본 22 scenario를 포함한 release tag와 대응해야 한다. 로컬에서 확인한 `v0.2.3`과 `v0.2.4` tag 스냅샷에는 GPU/XID 시나리오 16개만 담겨 있었고 `training-worker`, `ibstat` 계열 바이너리도 없었다. 현재 준비 대상은 22 scenario와 IB/training/recovery 변경을 포함하는 `v0.3.0`이며, 아직 publish하거나 검증을 마치지 않았다. archive checksum smoke와 설치 기반 Linux E2E 결과가 확인되기 전에는 강의 기준 release로 취급하지 않는다.
+- 버전 정합성: 강의 실습 binary는 기본 22 scenario를 포함한 release tag와 대응해야 한다. 로컬에서 확인한 `v0.2.3`과 `v0.2.4` tag 스냅샷에는 GPU/XID 시나리오 16개만 담겨 있었고 `training-worker`, `ibstat` 계열 바이너리도 없었다. 강의 기준은 22 scenario와 IB/training/recovery 변경을 포함하는 `v0.3.0`이다. 공개·검증 상태는 Release 페이지와 해당 tag의 Release workflow를 기준으로 확인한다. archive checksum smoke와 설치 기반 Linux E2E 결과가 확인되기 전에는 강의 기준 release로 취급하지 않는다.
 
 ## 기술 기준 자료
 

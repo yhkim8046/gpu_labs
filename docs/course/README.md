@@ -4,6 +4,8 @@
 실제 GPU, driver, CUDA, RDMA 장비를 제공하지 않습니다. 모든 수치는 합성 fixture이며,
 본 패키지의 모든 값은 합성이며, 실측 로그를 직접 확보·검증한 경우만 그 사실을 명시한다.
 
+강의 버전 고정, 촬영 순서, 파일럿 대본은 [강사 촬영 가이드](recording-guide.md)를 사용합니다.
+
 ## 대상과 선수지식
 
 - Kubernetes 기본: Pod/Deployment/Scheduler/Node 개념, kubectl 기본 사용

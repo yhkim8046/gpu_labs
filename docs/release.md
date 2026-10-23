@@ -2,7 +2,7 @@
 
 GitHub Release에는 수강생용 `gpu`, 호환용 `gpu-lab`, synthetic telemetry용 `nvidia-smi`, 그리고 rdma-core 명령 형식의 `ibstat`, `ibstatus`, `ibv_devinfo` macOS, Linux, Windows 바이너리가 함께 업로드됩니다. GPU Lab 내부의 `nvidia-device-plugin`과 `dcgm-exporter`는 `gpu helm install`이 실제 Helm release로 배포하는 교육용 runtime image입니다.
 
-아래 `v0.3.0` 표기는 이번 릴리스 준비 대상의 예시입니다. tag publish 후 checksummed archive smoke와 설치 E2E가 확인되기 전에는 공개되었거나 검증을 마친 release로 간주하지 않습니다.
+강의 기준 버전은 `v0.3.0`입니다. [Release 페이지](https://github.com/yhkim8046/gpu_labs/releases/tag/v0.3.0)의 공개 archive와 해당 tag의 Release workflow에서 checksummed archive smoke 및 설치 E2E 성공을 확인한 뒤 사용합니다. snapshot 성공만으로 공개 release가 검증되었다고 간주하지 않습니다.
 
 ## 설치
 

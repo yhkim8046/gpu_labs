@@ -4,11 +4,11 @@ GPU가 없는 노트북에서 Kubernetes GPU Infrastructure의 설치, 모니터
 
 gpu-lab은 실제 GPU나 CUDA를 제공하지 않습니다. Kubernetes GPU scheduling, Device Plugin, DCGM Exporter, Prometheus, Grafana의 운영 흐름을 교육용으로 재현합니다.
 
-운영자 대상 유료 강의 자료는 [Course Package](course/README.md)(capstone 3종·체크시트·루브릭)에, 환경 문제 진단은 [Troubleshooting](troubleshooting.md)에 있습니다.
+운영자 대상 유료 강의 자료는 [Course Package](course/README.md)(capstone 4종·체크시트·루브릭)에, 환경 문제 진단은 [Troubleshooting](troubleshooting.md)에 있습니다.
 
 ## 1. CLI 설치
 
-수강생은 Go를 설치하거나 소스 저장소를 clone하지 않고 공식 설치 스크립트로 CLI를 설치할 수 있습니다. 설치 스크립트가 최신 Release의 OS·CPU별 archive를 선택하고 checksum을 확인한 뒤 `gpu`, `gpu-lab`, `nvidia-smi`를 설치합니다.
+수강생은 Go를 설치하거나 소스 저장소를 clone하지 않고 공식 설치 스크립트로 CLI를 설치할 수 있습니다. 설치 스크립트가 지정한 Release의 OS·CPU별 archive를 선택하고 checksum을 확인한 뒤 `gpu`, `gpu-lab`, `nvidia-smi`, `ibstat`, `ibstatus`, `ibv_devinfo`를 설치합니다.
 
 Release 페이지: <https://github.com/yhkim8046/gpu_labs/releases>
 
@@ -19,14 +19,14 @@ Docker Desktop 또는 Docker Engine을 먼저 설치하고 실행한 뒤, 아래
 ```bash
 curl --fail --silent --show-error --location \
   --output gpu-lab-install.sh \
-  https://raw.githubusercontent.com/yhkim8046/gpu_labs/main/scripts/install.sh
-bash gpu-lab-install.sh
+  https://raw.githubusercontent.com/yhkim8046/gpu_labs/v0.3.0/scripts/install.sh
+GPU_LAB_VERSION=v0.3.0 bash gpu-lab-install.sh
 ```
 
 기본 설치 위치는 `/usr/local/bin`입니다. 권한이 없으면 다음처럼 사용자 디렉터리를 지정할 수 있습니다.
 
 ```bash
-GPU_LAB_INSTALL_DIR="$HOME/.local/bin" bash gpu-lab-install.sh
+GPU_LAB_VERSION=v0.3.0 GPU_LAB_INSTALL_DIR="$HOME/.local/bin" bash gpu-lab-install.sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
@@ -37,7 +37,7 @@ export PATH="$HOME/.local/bin:$PATH"
 Windows native 환경에서는 `.zip` asset을 사용합니다. 아래는 일반적인 Intel/AMD 64-bit Windows 예시이며, ARM Windows는 `amd64`를 `arm64`로 바꿉니다.
 
 ```powershell
-$Version = "0.2.3"
+$Version = "0.3.0"
 $Arch = "amd64"
 $Asset = "gpu-lab_${Version}_windows_${Arch}.zip"
 $BaseUrl = "https://github.com/yhkim8046/gpu_labs/releases/download/v$Version"
@@ -50,37 +50,26 @@ if ($Expected -ne $Actual) { throw "checksum verification failed" }
 
 Expand-Archive $Asset -DestinationPath .\gpu-lab-$Version -Force
 New-Item -ItemType Directory -Force -Path "$HOME\bin" | Out-Null
-Copy-Item ".\gpu-lab-$Version\gpu-lab.exe" "$HOME\bin\gpu-lab.exe" -Force
-Copy-Item ".\gpu-lab-$Version\gpu.exe" "$HOME\bin\gpu.exe" -Force
+foreach ($Binary in @("gpu", "gpu-lab", "nvidia-smi", "ibstat", "ibstatus", "ibv_devinfo")) {
+    Copy-Item ".\gpu-lab-$Version\$Binary.exe" "$HOME\bin\$Binary.exe" -Force
+}
 
 $env:Path += ";$HOME\bin"
 & "$HOME\bin\gpu-lab.exe" version
 ```
 
-설치 예제의 `v0.2.3`는 로컬에서 확인한 release tag이며, 그 스냅샷에는 분산학습(`gpu training`)과 InfiniBand/RDMA 실습(`gpu ibstat`, `gpu ibstatus`, `gpu ibv_devinfo`)이 포함되어 있지 않습니다. 기본 22 scenario와 위 명령들은 그 tag 이후에 추가되었지만 아직 커밋·release되지 않은 로컬 수정본에만 있습니다. 따라서 이번 기능은 현재 수정본 checkout에서 직접 빌드해야 하고, 공개 저장소를 clone하는 것만으로는 같은 산출물이 나오지 않습니다.
+강의 기준은 `v0.3.0`입니다. 이 버전의 소스는 기본 22 scenario, 분산학습과 InfiniBand/RDMA 실습을 포함합니다. [Release 페이지](https://github.com/yhkim8046/gpu_labs/releases/tag/v0.3.0)에서 archive와 checksum이 공개되고, 해당 tag의 Release workflow에서 archive smoke와 설치 기반 E2E가 성공한 것을 확인한 뒤 사용합니다. snapshot 검증은 공개 release 설치 검증과 구분합니다.
 
-macOS/Linux/WSL2에서 현재 수정본 checkout을 빌드하는 예시(Bash):
+Go toolchain이나 강사 개인의 로컬 수정본은 release binary 경로에 필요하지 않습니다. 개발 목적으로 직접 빌드하려면 공개 저장소에서 같은 tag를 선택합니다.
 
 ```bash
-cd gpu_labs          # 강의 측이 배부한 수정본 checkout 위치
+git clone --branch v0.3.0 --depth 1 https://github.com/yhkim8046/gpu_labs.git
+cd gpu_labs
 mkdir -p bin
-go build -o bin/gpu ./cmd/gpu-lab
-export PATH="$PWD/bin:$PATH"
-gpu version
+go build -o ./bin/gpu ./cmd/gpu-lab
 ```
 
-Windows에서 같은 checkout을 빌드하는 예시(PowerShell):
-
-```powershell
-Set-Location .\gpu-lab-src
-New-Item -ItemType Directory -Force -Path ".\bin" | Out-Null
-go build -o ".\bin\gpu.exe" ".\cmd\gpu-lab"
-$env:Path += ";$PWD\bin"
-gpu.exe version
-```
-
-강의는 training/fabric 산출물을 위와 같이 로컬 수정본 checkout의 source build로 준비해 배부해야 합니다(아직 그런 산출물이 배포돼 있는 것은 아닙니다). Go toolchain이 없는 수강생은 배부된 빌드 산출물을 받고, release binary 경로만 사용하는 수강생은 `v0.2.3` binary의 16개 GPU/XID/관찰 시나리오까지만 학습 범위로 둡니다.
-
+이 단순 source build의 버전 문자열은 `dev`이며 공식 release binary와 동일한 버전 메타데이터를 갖지 않습니다. 강의에서는 위의 버전 고정 release 설치를 사용합니다. 촬영 순서와 사전 점검은 [강사 촬영 가이드](course/recording-guide.md)를 참고합니다.
 
 새 PowerShell 창에서도 사용하려면 `$HOME\bin`을 Windows 사용자 `PATH`에 추가합니다.
 
@@ -241,7 +230,7 @@ gpu-lab scenario reset
 | rdma-retry-storm | RDMA retry·timeout | retry/timeout 및 fabric retry 증가 |
 | ib-congestion | 송신 큐 압박 | xmit wait/discard, fabric delay 증가 |
 
-22개 기본 scenario는 위 표와 같습니다. 시나리오의 정량 구분은 [Scenario Runbook](scenarios.md)을 기준으로 하며, release tag `v0.2.3` binary에는 16개 GPU/XID 시나리오만 포함되어 있습니다. 분산학습 시나리오(`gpu training run/inject/recover`)는 scenario 표가 아니라 [Distributed Training Runbook](distributed-training.md)의 drill로 실습합니다.
+22개 기본 scenario는 위 표와 같습니다. 시나리오의 정량 구분은 [Scenario Runbook](scenarios.md)을 기준으로 하며, 강의 기준 `v0.3.0`의 시나리오 목록이 22개인지 `gpu scenario list`로 확인합니다. 분산학습 시나리오(`gpu training run/inject/recover`)는 scenario 표가 아니라 [Distributed Training Runbook](distributed-training.md)의 drill로 실습합니다.
 
 ## 8. 핵심 5개 시나리오
 
