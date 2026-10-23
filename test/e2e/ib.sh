@@ -120,11 +120,25 @@ run_scenario() {
   local fault_condition="$3"
   local impact_selector="$4"
   local impact_condition="$5"
+  local mode adoption_selector
+  case "$name" in
+    ib-link-down) mode=down ;;
+    ib-rate-degraded) mode=degraded ;;
+    ib-symbol-errors) mode=errors ;;
+    rdma-retry-storm) mode=retries ;;
+    ib-congestion) mode=congestion ;;
+    *) echo "unknown fabric scenario: $name" >&2; return 2 ;;
+  esac
 
   echo "== fabric scenario: $name =="
   gpu scenario run "$name"
   gpu verify "$name"
   gpu_wait_metric "$fault_selector" "$fault_condition" "$name: fabric signature observed" 60 30
+  # Exporter adoption and kubelet's projected control volume are independent.
+  # Use the documented 180s delivery budget, then retain the 60s impact check.
+  adoption_selector="gpu_lab_training_fabric_fault_active{namespace=\"$namespace\",mode=\"$mode\"}"
+  gpu_wait_metric "$adoption_selector" "count($adoption_selector) == 3" \
+    "$name: all three ranks received fabric mode=$mode" 180 20
   if [[ -n "$impact_selector" ]]; then
     gpu_wait_metric "$impact_selector" "$impact_condition" "$name: training impact observed" 60 20
   fi
