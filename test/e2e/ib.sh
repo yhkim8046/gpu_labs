@@ -90,6 +90,9 @@ reset_and_check() {
   local scenario="$1"
   gpu scenario reset
   gpu training recover --namespace "$namespace"
+  local normal_selector="gpu_lab_training_fabric_fault_active{namespace=\"$namespace\",mode=\"normal\"}"
+  gpu_wait_metric "$normal_selector" "count($normal_selector == 0) == 3" \
+    "$scenario: all ranks received normal control" 180 20
   gpu verify --recovery "$scenario"
   gpu_wait_metric \
     gpu_lab_ib_port_up \
