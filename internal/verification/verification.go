@@ -113,7 +113,12 @@ func (v Verifier) Verify(ctx context.Context, selected scenario.Scenario) Report
 			v.queryCheck(ctx, "throttled utilization", "avg(gpu_lab_gpu_utilization_percent)", func(value float64) bool { return value < 80 }, "utilization is below the high-utilization threshold"),
 		)
 	case "thermal-escalation":
-		report.Checks = append(report.Checks, v.queryCheck(ctx, "thermal timeline", thermalTimelineQuery(), func(value float64) bool { return value == 3 }, "all 3 exporters agree on a fresh timeline phase and its 24 GPU readings"))
+		generation, err := v.Runner.Output(ctx, "kubectl", "--context", KubeContext, "get", "configmap", scenario.ConfigName, "-n", SystemNS, "-o", "jsonpath={.data.generation}")
+		if err != nil || strings.TrimSpace(generation) == "" {
+			report.Checks = append(report.Checks, Check{Name: "timeline generation", Detail: fmt.Sprintf("cannot read applied generation: %v", err)})
+			break
+		}
+		report.Checks = append(report.Checks, v.queryCheck(ctx, "thermal timeline", thermalTimelineQuery(strings.TrimSpace(generation)), func(value float64) bool { return value == 3 }, "all 3 exporters agree on the applied generation, a fresh timeline phase, and its 24 GPU readings"))
 	case "xid-48":
 		report.Checks = append(report.Checks,
 			v.queryCheck(ctx, "XID 48", "max(gpu_lab_gpu_xid_code)", func(value float64) bool { return value == 48 }, "XID 48 is reported"),

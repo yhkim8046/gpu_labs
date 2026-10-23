@@ -175,7 +175,7 @@ gpu_wait_metric \
   'max(gpu_lab_gpu_utilization_percent) == 15' \
   'thermal baseline utilization' 20 45
 gpu_wait_metric \
-  '{__name__=~"gpu_lab_gpu_memory_(used|total)_bytes"}' \
+  $'gpu_lab_gpu_memory_used_bytes\ngpu_lab_gpu_memory_total_bytes' \
   'max(abs(100 * gpu_lab_gpu_memory_used_bytes / gpu_lab_gpu_memory_total_bytes - 20)) < 0.000001' \
   'thermal baseline memory use' 20 45
 gpu_wait_metric \
@@ -195,7 +195,7 @@ gpu_wait_metric \
   'max(gpu_lab_gpu_utilization_percent) == 88' \
   'thermal warning utilization' 20 45
 gpu_wait_metric \
-  '{__name__=~"gpu_lab_gpu_memory_(used|total)_bytes"}' \
+  $'gpu_lab_gpu_memory_used_bytes\ngpu_lab_gpu_memory_total_bytes' \
   'max(abs(100 * gpu_lab_gpu_memory_used_bytes / gpu_lab_gpu_memory_total_bytes - 60)) < 0.000001' \
   'thermal warning memory use' 20 45
 gpu_wait_metric \
@@ -211,7 +211,7 @@ gpu_wait_metric \
   'max(gpu_lab_gpu_utilization_percent) == 62' \
   'thermal critical utilization' 20 45
 gpu_wait_metric \
-  '{__name__=~"gpu_lab_gpu_memory_(used|total)_bytes"}' \
+  $'gpu_lab_gpu_memory_used_bytes\ngpu_lab_gpu_memory_total_bytes' \
   'max(abs(100 * gpu_lab_gpu_memory_used_bytes / gpu_lab_gpu_memory_total_bytes - 74)) < 0.000001' \
   'thermal critical memory use' 20 45
 gpu_wait_metric \
@@ -232,7 +232,7 @@ gpu_wait_metric \
   'max(gpu_lab_gpu_utilization_percent) == 15' \
   'thermal recovery utilization' 20 45
 gpu_wait_metric \
-  '{__name__=~"gpu_lab_gpu_memory_(used|total)_bytes"}' \
+  $'gpu_lab_gpu_memory_used_bytes\ngpu_lab_gpu_memory_total_bytes' \
   'max(abs(100 * gpu_lab_gpu_memory_used_bytes / gpu_lab_gpu_memory_total_bytes - 20)) < 0.000001' \
   'thermal recovery memory use' 20 45
 gpu_wait_metric \

@@ -27,6 +27,22 @@ jobs:
         with:
           go-version: '1.26.x'
           cache: true
+      - name: Install matching Prometheus query test engine
+        env:
+          PROMETHEUS_VERSION: '3.13.1'
+        run: |
+          set -Eeuo pipefail
+          tools_dir="${RUNNER_TEMP}/prometheus-tools"
+          mkdir -p "$tools_dir"
+          cd "$tools_dir"
+          archive="prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz"
+          base="https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}"
+          curl --fail --location --retry 3 --output "$archive" "$base/$archive"
+          curl --fail --location --retry 3 --output sha256sums.txt "$base/sha256sums.txt"
+          awk -v file="$archive" '$2 == file {print; found=1} END {if (!found) exit 1}' sha256sums.txt > selected.sha256
+          sha256sum --check selected.sha256
+          tar -xzf "$archive" --strip-components=1 "prometheus-${PROMETHEUS_VERSION}.linux-amd64/promtool"
+          echo "PROMTOOL_PATH=$tools_dir/promtool" >> "$GITHUB_ENV"
       - run: bash -n scripts/install.sh
       - run: go test ./...
       - run: go test -race ./internal/training ./internal/exporter ./internal/deviceplugin

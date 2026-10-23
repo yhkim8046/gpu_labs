@@ -37,7 +37,7 @@ gpu metrics --query 'gpu_lab_gpu_throttle_active'
 gpu verify thermal-escalation
 ```
 
-각 단계에서 시각, phase, 온도·전력·utilization·VRAM·throttle을 기록한다. `gpu verify thermal-escalation`은 최신 phase와 24개 GPU 메트릭이 일치하는지 한 질의로 확인한다. 만료 후에는 `gpu verify normal`로 상태를 확인한다. phase별 자동 전이는 lab이 만드는 결과이며 수강생의 복구 조치로 해석하지 않는다. 수동 복구 증거는 `gpu scenario reset` 이후 따로 수집한다.
+각 단계에서 시각, phase, 온도·전력·utilization·VRAM·throttle을 기록한다. `gpu verify thermal-escalation`은 최신 phase와 24개 GPU 메트릭이 일치하는지 한 질의로 확인한다. 만료 후에는 `gpu_lab_scenario_info`의 normal 전이로 자동 복구를 확인한다. ConfigMap을 정상 상태로 정리하려면 `gpu scenario reset` 후 `gpu verify normal`을 실행한다. phase별 자동 전이는 lab이 만드는 결과이며 수강생의 복구 조치로 해석하지 않는다. 수동 복구 증거는 `gpu scenario reset` 이후 따로 수집한다.
 
 아래 고정 시나리오를 함께 사용해 시간 전이와 고정 fixture의 차이를 비교한다.
 
@@ -166,8 +166,8 @@ kubectl --context gpu-lab -n gpu-lab-demo get pods -l app.kubernetes.io/name=gpu
 | --- | --- |
 | 증거 수집 | 고정 시나리오 2종 스냅샷과 crash 전후 원본 |
 | 가설 검증 | 고부하 가설을 시간 선후 데이터로 반증 |
-| 경계 인식 | timeline 미연결 사실 인지, 자동 만료 vs 조치 효과 분리, fixture/실측 구분 |
+| 경계 인식 | 공통 시각 기반 timeline 이해, 자동 만료 vs 조치 효과 분리, fixture/실측 구분 |
 | 안전 | reset·drain류 미사용 판단과 그 근거 |
 | 재현성 | 동일 시나리오 재실행으로 같은 패턴 확인 |
 
-각 항목 0~3점, 5항목 합계 15점 만점. 합격: 합계 10점 이상, 모든 항목 1점 이상, 그중 "증거 수집"과 "가설 검증"은 각 2점 이상. 단 "경계 인식"에서 timeline 미연결이나 자동 만료를 자신의 복구 성과로 설명하면 그 항목 0점이어서 합격할 수 없다.
+각 항목 0~3점, 5항목 합계 15점 만점. 합격: 합계 10점 이상, 모든 항목 1점 이상, 그중 "증거 수집"과 "가설 검증"은 각 2점 이상. 단 "경계 인식"에서 timeline의 자동 전이나 자동 만료를 자신의 복구 성과로 설명하면 그 항목 0점이어서 합격할 수 없다.

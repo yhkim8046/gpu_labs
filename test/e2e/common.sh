@@ -56,14 +56,29 @@ gpu_e2e_require_cluster_opt_in() {
   return 2
 }
 
+gpu_e2e_guarded_query() {
+  local selector="${1:?Prometheus selector is required}"
+  local expression="${2:?Prometheus expression is required}"
+  local max_age="${3:-30}"
+  local samples guard="" check
+
+  # Each newline-delimited selector names one metric. timestamp() removes
+  # __name__, so combining metric families first would create label collisions.
+  while IFS= read -r samples; do
+    [[ -n "$samples" ]] || continue
+    check="(count($samples) > 0) and (count(($samples) < +Inf) == count($samples)) and (count(($samples) > -Inf) == count($samples)) and (time() - max(timestamp($samples)) >= 0) and (time() - min(timestamp($samples)) <= $max_age)"
+    guard="${guard:+$guard and }$check"
+  done <<<"$selector"
+  printf '((%s) and (%s))\n' "$expression" "$guard"
+}
+
 gpu_e2e_query_value() {
   local selector="${1:?Prometheus selector is required}"
   local expression="${2:?Prometheus expression is required}"
   local max_age="${3:-30}"
-  local guard query encoded response api_path
+  local query encoded response api_path
 
-  guard="(count($selector) > 0) and (count(($selector) < +Inf) == count($selector)) and (count(($selector) > -Inf) == count($selector)) and (min(time() - timestamp($selector)) >= 0) and (max(time() - timestamp($selector)) <= $max_age)"
-  query="(($expression) and ($guard))"
+  query="$(gpu_e2e_guarded_query "$selector" "$expression" "$max_age")"
   encoded="$(python3 -c 'import sys; from urllib.parse import quote_plus; print(quote_plus(sys.argv[1]))' "$query")"
   api_path="/api/v1/namespaces/gpu-lab-monitoring/services/gpu-lab-monitoring-kube-pr-prometheus:9090/proxy/api/v1/query?query=$encoded"
 
