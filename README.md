@@ -47,6 +47,7 @@ gpu helm list --all-namespaces
 - [Getting Started](docs/getting-started.md)
 - [Student Guide](docs/student-guide.md)
 - [Course Package](docs/course/README.md)
+- [강사 촬영 가이드](docs/course/recording-guide.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Release & Installation](docs/release.md)
 - [Scenario Runbook](docs/scenarios.md)
