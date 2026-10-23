@@ -109,6 +109,10 @@ func TestPromQLRegression(t *testing.T) {
 	cases = append(cases, testCase{Name: "recent previous workload is rejected", Interval: "1s", Input: memoryInput, Expressions: []expression{{string(query), "12s", []sample{}}}})
 	currentWorkload := []series{{`gpu_lab_gpu_memory_used_bytes{node="n",gpu="0"}`, "20+0x60"}, {`gpu_lab_gpu_memory_total_bytes{node="n",gpu="0"}`, "100+0x60"}}
 	cases = append(cases, testCase{Name: "replacement workload samples accepted", Interval: "1s", Input: currentWorkload, Expressions: []expression{{string(query), "12s", []sample{{"{}", 0}}}}})
+	cases = append(cases,
+		testCase{Name: "all workers adopted normal fabric", Interval: "1s", Input: []series{{`gpu_lab_training_fabric_fault_active{rank="0",mode="normal"}`, "0+0x60"}, {`gpu_lab_training_fabric_fault_active{rank="1",mode="normal"}`, "0+0x60"}, {`gpu_lab_training_fabric_fault_active{rank="2",mode="normal"}`, "0+0x60"}}, Expressions: []expression{{trainingNormalFabricExpr + " == 3", "1s", []sample{{"{}", 3}}}}},
+		testCase{Name: "non-targeted worker still observes down mode", Interval: "1s", Input: []series{{`gpu_lab_training_fabric_fault_active{rank="0",mode="normal"}`, "0+0x60"}, {`gpu_lab_training_fabric_fault_active{rank="1",mode="normal"}`, "0+0x60"}, {`gpu_lab_training_fabric_fault_active{rank="2",mode="down"}`, "0+0x60"}}, Expressions: []expression{{trainingNormalFabricExpr + " == 3", "1s", []sample{}}}},
+	)
 	data, err := json.MarshalIndent(map[string]any{"evaluation_interval": "1s", "tests": cases}, "", "  ")
 	if err != nil {
 		t.Fatal(err)

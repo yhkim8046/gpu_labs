@@ -140,6 +140,8 @@ func baselineQueryResponder(overrides func(query string) (string, bool)) func(st
 			return promVector("3")
 		case strings.HasPrefix(query, `sum(gpu_lab_training_rank_up)`):
 			return promVector("3")
+		case query == trainingNormalFabricExpr:
+			return promVector("3")
 		case strings.HasPrefix(query, `sum(gpu_lab_training_fabric_delay_seconds)`):
 			return promVector("0")
 		default:
@@ -540,4 +542,55 @@ func nan() float64 {
 	var f float64
 	var inf = f * 1e308
 	return inf / inf
+}
+
+// Link-down has zero delay by contract, so delay=0 and a recovered ConfigMap
+// cannot prove that every worker has received the normal control yet.
+func TestRecoveryWaitsForEveryWorkerToAdoptNormalFabric(t *testing.T) {
+	fake := &fakeCommand{t: t, scenarioYAML: normalScenarioYAML, controlJSON: `{"fabric_mode":"normal"}`, stepSequence: []string{"10", "11"}}
+	polls := 0
+	fake.byQuery = baselineQueryResponder(func(query string) (string, bool) {
+		if query != trainingNormalFabricExpr {
+			return "", false
+		}
+		if fake.stepObservings != 0 {
+			t.Fatal("progress observation started before control adoption finished")
+		}
+		polls++
+		if polls < 4 {
+			return promVector("2"), true
+		}
+		return promVector("3"), true
+	})
+	report := newRecoveryVerifier(fake).VerifyRecovery(context.Background(), "ib-link-down")
+	if !report.Passed() || polls != 4 {
+		t.Fatalf("normal fabric adoption must converge before progress: polls=%d report=%+v", polls, report)
+	}
+}
+
+func TestRecoveryRejectsUnadoptedNormalFabric(t *testing.T) {
+	for _, body := range []string{promVector("2"), promEmpty, promVector("NaN")} {
+		fake := &fakeCommand{t: t, scenarioYAML: normalScenarioYAML, controlJSON: `{"fabric_mode":"normal"}`, stepSequence: []string{"10", "11"}}
+		fake.byQuery = baselineQueryResponder(func(query string) (string, bool) {
+			if query == trainingNormalFabricExpr {
+				return body, true
+			}
+			return "", false
+		})
+		verifier := newRecoveryVerifier(fake)
+		verifier.Timeout = 100 * time.Millisecond
+		report := verifier.VerifyRecovery(context.Background(), "ib-link-down")
+		found := false
+		for _, check := range report.Checks {
+			if check.Name == "training adopted normal fabric" {
+				found = true
+				if check.Passed {
+					t.Fatal("unadopted/missing/non-finite normal fabric must fail")
+				}
+			}
+		}
+		if !found || report.Passed() {
+			t.Fatalf("normal fabric gate did not fail closed: %+v", report)
+		}
+	}
 }

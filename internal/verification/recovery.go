@@ -95,6 +95,7 @@ const (
 	trainingControlConfigMap = "gpu-lab-training-control"
 	trainingControlKey       = "control.json"
 	trainingStepExpr         = `max(gpu_lab_training_step)`
+	trainingNormalFabricExpr = `count(gpu_lab_training_fabric_fault_active{mode="normal"} == 0)`
 	exporterUpExpr           = `up{service="dcgm-exporter"}`
 	adoptionSeriesExpr       = `gpu_lab_scenario_info{scenario="normal"}`
 )
@@ -319,6 +320,12 @@ func TrainingRecoveryQueries() []recoveryQuery {
 			Expr:     `sum(gpu_lab_training_rank_up)`,
 			Pass:     recoveryGauge(func(v float64) bool { return v == RecoveryTrainingRanks }),
 			Expected: fmt.Sprintf("all %d ranks report up=1", RecoveryTrainingRanks),
+		},
+		{
+			Name:     "training adopted normal fabric",
+			Expr:     trainingNormalFabricExpr,
+			Pass:     recoveryGauge(func(v float64) bool { return v == RecoveryTrainingRanks }),
+			Expected: fmt.Sprintf("all %d ranks observe mode=normal with no active fabric fault", RecoveryTrainingRanks),
 		},
 		{
 			Name:     "training observed fabric delay",

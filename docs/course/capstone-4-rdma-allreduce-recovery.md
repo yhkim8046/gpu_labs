@@ -200,6 +200,7 @@ gpu verify --recovery rdma-retry-storm
 | worker×{port up, state, rate, delay} | fabric 게이지 | up=1, ACTIVE/LINK_UP series 존재, rate=200, injected delay=0 | 게이지만 |
 | rdma_retries/timeouts readable | **누적 카운터** | series가 계속 읽힘(count>0) | **아님** |
 | ranks published/up | 통신 world | count=3이고 sum=3 | — |
+| training adopted normal fabric | worker의 실제 설정 수신 | 3개 rank 모두 mode=normal, active=0. ConfigMap 전파를 기다린 뒤 진행 검사를 시작 | 게이지만 |
 | training observed fabric delay | worker 관측 게이지 | 0 | 게이지만 |
 | allreduce error counter readable | 누적 카운터 | series 존재 | **아님** |
 | training step progress | stale/stall 가드 | step이 두 관찰에서 **단조 증가** | — |
