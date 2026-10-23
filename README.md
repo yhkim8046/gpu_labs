@@ -15,7 +15,7 @@ gpu-lab은 GPU나 CUDA를 흉내 내는 프로젝트가 아닙니다. Kubernetes
 - Prometheus와 Grafana 기반 GPU monitoring
 - 3-rank synthetic AllReduce 분산학습과 checkpoint/장애 복구 실습
 - synthetic InfiniBand/RDMA HCA·port·fabric 장애와 AllReduce 영향 관측
-- YAML 기반 GPU incident scenario
+- YAML 기반 GPU incident scenario(normal baseline 1개를 포함해 기본 22개, 이 중 장애 시나리오는 21개)
 - scheduling failure, exporter down, thermal, ECC/XID, power throttling, PCIe replay, idle GPU, capacity mismatch, selector mismatch, fragmentation troubleshooting
 
 실제 GPU 장치, NVIDIA driver, CUDA kernel 실행은 범위에 포함하지 않습니다.
@@ -46,6 +46,8 @@ gpu helm list --all-namespaces
 - [Architecture Proposal](docs/architecture.md)
 - [Getting Started](docs/getting-started.md)
 - [Student Guide](docs/student-guide.md)
+- [Course Package](docs/course/README.md)
+- [Troubleshooting](docs/troubleshooting.md)
 - [Release & Installation](docs/release.md)
 - [Scenario Runbook](docs/scenarios.md)
 - [Distributed Training Runbook](docs/distributed-training.md)
@@ -92,10 +94,10 @@ gpu doctor
 gpu create --all
 ```
 
-Git tag `v1.0.0`을 push하면 GitHub Actions가 GHCR에 다음 multi-arch runtime image를 publish합니다.
+GitHub Actions는 release tag와 같은 버전의 multi-arch runtime image를 GHCR에 publish합니다. 예를 들어 `v0.3.0` tag가 publish되면 image tag는 `0.3.0`입니다.
 
 ```text
-ghcr.io/<github-owner>/gpu-lab-runtime:1.0.0
+ghcr.io/<github-owner>/gpu-lab-runtime:0.3.0
 ```
 
 Release binary는 CLI version에 맞는 GHCR image를 자동으로 사용합니다. 소스에서 `go run`을 실행하거나 `gpu create --local`을 지정하면 local `gpu-lab:dev` image를 build합니다.
@@ -124,26 +126,27 @@ go run ./cmd/gpu-lab training inject straggler --rank 2 --delay 2s
 go run ./cmd/gpu-lab training recover
 go run ./cmd/gpu-lab scenario run ib-rate-degraded
 go run ./cmd/gpu-lab verify ib-rate-degraded
+go run ./cmd/gpu-lab verify --recovery ib-rate-degraded   # reset 이후 정상화만 별도 판정
 go run ./cmd/gpu-lab scenario reset
 ```
 
 분산학습 실습은 세 worker의 rendezvous, AllReduce 지연, rank 장애, checkpoint 기반 재시작과 Prometheus/Grafana 관측 흐름을 재현합니다. InfiniBand/RDMA 실습은 synthetic HCA와 port 상태, link rate, 오류·retry·congestion 신호를 AllReduce 진행과 연결합니다. 연산과 metric은 결정적인 synthetic 값이며 실제 CUDA, NCCL, RDMA 또는 NVLink 성능을 측정하지 않습니다. 전체 절차는 [Distributed Training Runbook](docs/distributed-training.md)과 [InfiniBand/RDMA Fabric Runbook](docs/ib-fabric.md)을 따르세요.
 
-GPU Lab는 synthetic telemetry를 NVIDIA-SMI 형태로 확인할 수 있는 호환 명령도 제공합니다.
+GPU Lab는 synthetic telemetry를 NVIDIA-SMI 형태로 확인할 수 있는 synthetic 조회 명령도 제공합니다. synthetic 조회는 GPU Lab가 배포하는 동명 바이너리 또는 synthetic 모드로 실행하는 명령만 해당하며, `gpu` wrapper의 `auto`(기본)와 `real` 모드는 설치된 실제 `nvidia-smi`를 호출합니다.
 
 ```bash
-gpu nvidia-smi
-nvidia-smi --list-gpus
-nvidia-smi --query-gpu=temperature.gpu,memory.used,utilization.gpu --format=csv,noheader,nounits
-gpu nvidia-smi --node gpu-lab-worker
+GPU_LAB_MODE=synthetic gpu nvidia-smi
+GPU_LAB_MODE=synthetic gpu nvidia-smi --list-gpus
+GPU_LAB_MODE=synthetic gpu nvidia-smi --query-gpu=temperature.gpu,memory.used,utilization.gpu --format=csv,noheader,nounits
+GPU_LAB_MODE=synthetic gpu nvidia-smi --node gpu-lab-worker
 gpu ibstat --node gpu-lab-worker
 gpu ibstatus --node gpu-lab-worker
 gpu ibv_devinfo --node gpu-lab-worker -v
 ```
 
-기본 출력은 synthetic 노드별로 하나의 NVIDIA-SMI 블록을 보여줍니다. 특정 노드만 확인하려면 `--node <node-name>`을 사용합니다. Release archive의 `nvidia-smi`를 PATH에 설치하면 `nvidia-smi`를 직접 입력할 수 있습니다. 이 명령은 실제 NVIDIA driver/CUDA를 사용하지 않고, 설치된 Prometheus의 `gpu_lab_*` metric을 읽습니다.
+모의 출력은 synthetic 노드별로 하나의 NVIDIA-SMI 블록을 보여주며, 설치된 Prometheus의 `gpu_lab_*` metric을 읽습니다. 특정 노드만 확인하려면 `--node <node-name>`을 사용합니다. GPU Lab의 동명 독립 바이너리와 명시적 `synthetic` 모드는 실제 NVIDIA driver/CUDA를 사용하지 않습니다. `gpu nvidia-smi`의 기본 `auto` 모드는 설치된 실제 도구를 우선하며, 도구가 없고 실험실 근거가 확인되면 내부 모의 명령을 사용합니다. 실제 모드는 원래 명령 인자를 그대로 전달합니다. Release archive의 독립 `nvidia-smi` 호출은 모의 경로로 계속 지원됩니다.
 
-Release와 runtime image에는 rdma-core 명령 이름을 그대로 사용하는 `ibstat`, `ibstatus`, `ibv_devinfo` 호환 바이너리도 포함됩니다. `gpu ibstat`처럼 CLI 하위 명령으로 실행하거나 exporter Pod 안에서 `ibstat`을 직접 실행할 수 있으며, CA·GUID·LID·port state·physical state·rate·MTU 필드와 옵션 형식은 실제 명령 출력을 따릅니다. 값은 synthetic HCA 상태입니다.
+Release와 runtime image에는 rdma-core 명령 이름을 사용하는 모의 `ibstat`, `ibstatus`, `ibv_devinfo` 바이너리도 포함됩니다. 위 예제의 모의 모드에서는 CA·GUID·LID·port state·physical state·rate·MTU 형식으로 synthetic HCA 상태를 표시합니다. `gpu ibstat` 등은 실제 모드에서 호스트에 설치된 해당 도구를 호출하고 인자를 그대로 전달합니다.
 
 실제 cluster lifecycle을 실행하려면 Docker, kind, kubectl, Helm을 설치한 뒤 저장소 루트에서 다음을 실행합니다.
 
@@ -165,6 +168,28 @@ go run ./cmd/gpu-lab destroy
 make test
 make e2e
 ```
+
+## GPU 점검 (gpu inspect)
+
+`gpu inspect`는 NVIDIA 소스나 바이너리를 복제하지 않고, 로컬에 설치된 실제 `nvidia-smi`를 호출하는 점검 명령입니다. 이 기능은 사용자가 설치한 도구를 호출하는 비공식 GPU Lab 기능입니다. NVIDIA와 제휴하거나 인증받은 도구가 아닙니다. 점검은 명령을 실행하는 호스트의 로컬 GPU를 대상으로 하며, Kubernetes worker의 원격 하드웨어를 점검하는 기능이 아닙니다. 모든 결과에 real/synthetic 출처와 비공식 안내가 포함됩니다.
+
+```bash
+gpu inspect                      # 기본값 auto
+gpu inspect --mode real          # 설치된 nvidia-smi만, 없으면 unavailable
+gpu inspect --mode synthetic     # 실험실 근거만
+gpu inspect --json
+gpu inspect --timeout 10s
+
+gpu --mode real nvidia-smi -q              # 전역 모드 선택
+GPU_LAB_MODE=real gpu nvidia-smi -q        # 환경 변수
+gpu --mode real dcgmi discovery -l        # 설치된 DCGM 도구 호출
+```
+
+- `auto`(기본)는 번들된 `nvidia-smi` shim을 제외하고 PATH의 실제 `nvidia-smi`를 찾아 `nvidia-smi -q -x`를 호출합니다. `nvidia-smi`가 없으면 실험실의 긍정적 근거를 사용하고, 둘 다 없으면 `unavailable`입니다. `nvidia-smi` 탐색이나 호출이 실패해도 synthetic으로 대체하지 않습니다. `GPU_LAB_NVIDIA_SMI=/absolute/path/nvidia-smi`로 공식 `nvidia-smi` 경로를 직접 지정할 수 있습니다.
+- `real`은 `nvidia-smi`가 필수이고 `dcgmi`는 선택입니다. `dcgmi`는 `dcgmi discovery -l`만 호출하며 `reset`, `config`, `diag`를 자동 실행하지 않습니다. `synthetic`은 두 제조사 도구가 없어도 실행할 수 있습니다.
+- `gpu nvidia-smi`의 real 경로는 NVIDIA-SMI 인자를 변경 없이 설치된 `nvidia-smi`에 그대로 전달합니다. `--query-gpu`, `--format=csv,noheader,nounits`, `--list-gpus`, `--node` 부분집합 제한은 synthetic에만 적용됩니다.
+- 상태는 `pass`/`warn`/`fail`/`unavailable`/`unsupported`입니다. 드라이버가 없으면 `unavailable`이며 샘플 출력은 하드웨어 검증이 아닙니다.
+- 명령 전달 안내는 stderr에 출력해 CSV를 보존하고, 점검 JSON에는 비공식 메타데이터를 포함합니다. 세부 사용법은 [GPU 점검 문서](docs/inspect.md)와 공식 참고 문서 [NVIDIA-SMI](https://docs.nvidia.com/deploy/nvidia-smi/index.html), [DCGM](https://docs.nvidia.com/datacenter/dcgm/latest/user-guide/feature-overview.html)를 참고하세요.
 
 ## OSS 운영 원칙
 

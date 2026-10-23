@@ -1,0 +1,30 @@
+apiVersion: gpu-lab.io/v1alpha1
+kind: Scenario
+metadata:
+  name: thermal-escalation
+spec:
+  description: GPU telemetry progresses from baseline through thermal warning and critical throttling before recovery
+  duration: 3m
+  timeline:
+    - phase: baseline
+      at: 0s
+      metrics: {}
+    - phase: warning
+      at: 30s
+      metrics:
+        gpu_utilization_percent: 88
+        gpu_memory_used_percent: 60
+        temperature_celsius: 82
+        power_watts: 210
+    - phase: critical
+      at: 1m
+      metrics:
+        gpu_utilization_percent: 62
+        gpu_memory_used_percent: 74
+        temperature_celsius: 96
+        power_watts: 245
+        throttle_active: 1
+        throttle_reason: thermal
+    - phase: recovery
+      at: 2m
+      metrics: {}

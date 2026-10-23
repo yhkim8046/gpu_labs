@@ -3,20 +3,19 @@ package exporter
 import (
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gpu-lab/gpu-lab/internal/scenario"
+	"github.com/gpu-lab/gpu-lab/internal/testutil"
 )
 
 func TestHTTPFaultMode(t *testing.T) {
 	m := NewModel("gpu-node-01", 1)
 	s := NewServer(m, "")
-	server := httptest.NewServer(s.Handler())
-	defer server.Close()
-	response, err := http.Get(server.URL + "/metrics")
+	client := testutil.HandlerClient(s.Handler())
+	response, err := client.Get("http://gpu-lab.test/metrics")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +28,7 @@ func TestHTTPFaultMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.Apply(down, "2")
-	response, err = http.Get(server.URL + "/metrics")
+	response, err = client.Get("http://gpu-lab.test/metrics")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,10 +49,9 @@ func TestHTTPFaultModeRecoversAfterDuration(t *testing.T) {
 	down.Spec.Duration = "5s"
 	m.Apply(down, "45")
 
-	server := httptest.NewServer(NewServer(m, "").Handler())
-	defer server.Close()
+	client := testutil.HandlerClient(NewServer(m, "").Handler())
 
-	response, err := http.Get(server.URL + "/metrics")
+	response, err := client.Get("http://gpu-lab.test/metrics")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +61,7 @@ func TestHTTPFaultModeRecoversAfterDuration(t *testing.T) {
 	_ = response.Body.Close()
 
 	now = now.Add(5 * time.Second)
-	response, err = http.Get(server.URL + "/metrics")
+	response, err = client.Get("http://gpu-lab.test/metrics")
 	if err != nil {
 		t.Fatal(err)
 	}

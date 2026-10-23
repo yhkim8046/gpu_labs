@@ -2,6 +2,7 @@ package training
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 )
@@ -23,6 +24,9 @@ func LoadCheckpoint(path string) (Checkpoint, error) {
 	var cp Checkpoint
 	if err := json.Unmarshal(b, &cp); err != nil {
 		return Checkpoint{}, err
+	}
+	if cp.Step < 0 || cp.Restarts < 0 {
+		return Checkpoint{}, errors.New("checkpoint step and restarts must not be negative")
 	}
 	if cp.AppliedCrashGenerations == nil {
 		cp.AppliedCrashGenerations = map[string]bool{}

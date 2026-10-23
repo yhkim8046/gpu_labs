@@ -24,7 +24,7 @@ func main() {
 		_, _ = rw.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("/readyz", func(rw http.ResponseWriter, _ *http.Request) {
-		if !w.Metrics.IsUp() {
+		if !w.IsReady() {
 			http.Error(rw, "worker is initializing", http.StatusServiceUnavailable)
 			return
 		}

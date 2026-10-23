@@ -8,6 +8,10 @@
 
 실제 장비로 번역할 때 필요한 명령은 이 문서의 마지막 절에 따로 적었습니다. 해당 명령이 현재 Lab 컨테이너나 kind 노드에 설치되어 있다고 가정하지 않습니다.
 
+기본 fabric fixture는 GPU worker 노드당 HCA 1개(`mlx5_0`)와 port 1개입니다. HCA는 GPU 장치가 아니라 RDMA NIC를 모델하므로, device plugin의 `GPU_COUNT`(기본 8)나 노드별 GPU 수와 독립인 별도 상수입니다. GPU를 8개 보유하거나 2개를 할당받아도 `ibstat`에는 노드당 HCA 1개가 보입니다.
+
+`ibstat`의 필드, 순서, 값 형식은 rdma-core `v56.0`의 [infiniband-diags/ibstat.c](https://github.com/linux-rdma/rdma-core/blob/v56.0/infiniband-diags/ibstat.c)를 기준으로 검증했습니다. 실제 설치 버전에서는 필드가 더 있거나 다를 수 있습니다. 호환 범위는 normal, `-s`(CA header만), positional sole(CA 이름과 port를 같이 줄 때 `CA: '<ca>'` header와 들여쓰기 없는 port block), `-l`·`-p` list(port 인자는 무시) 모드와 `-v` 옵션입니다. 최신 upstream ibstat가 추가한 조건부 `Effective speed` 출력은 ibstat에서 구현하지 않았습니다(ibv_devinfo의 `effective_speed` field와는 다른 출력이며, ibv_devinfo 쪽은 이미 출력합니다). `--node`는 upstream 옵션이 아니라 GPU Lab 확장입니다. `ibstatus`, `ibv_devinfo`는 출력 형식을 실제 명령에 가깝게 맞춘 lab 구현이며, 위와 같은 방식으로 v56.0 원전과 전수 대조 검증한 것은 아닙니다.
+
 ## 사전 조건과 baseline
 
 클러스터와 monitoring, synthetic fabric exporter, 3-rank training worker가 이미 실행 중이어야 합니다.
@@ -173,8 +177,15 @@ gpu scenario reset은 synthetic exporter와 training control을 정상화할 뿐
 
 ## 복구·검증 순서
 
+reset 이후의 정상화 판정은 `gpu verify --recovery [fault]`가 전담한다. reset 전에 실행한
+`gpu verify <scenario>`는 **장애 상태 도달**만 판정하는 명령이므로 복구 증거로 쓰면 안 된다.
+정상화 판정은 게이지(port up/rate/주입 지연 0)와 진행도(step 증가)로만 내며, 누적 `*_total`
+카운터는 0을 요구하지 않고 series가 계속 읽히는지만 확인한다(사고 흔적 보존). 상세 계약과
+실측 예시는 [capstone-4-rdma-allreduce-recovery.md](course/capstone-4-rdma-allreduce-recovery.md)에 있다.
+
     gpu scenario reset
     gpu training recover
+    gpu verify --recovery rdma-retry-storm
     gpu verify normal
     gpu ibstat --node gpu-lab-worker
     gpu ibstatus --node gpu-lab-worker

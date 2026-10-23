@@ -2,9 +2,9 @@ package nvidiasmi
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -12,20 +12,99 @@ import (
 	"testing"
 
 	"github.com/gpu-lab/gpu-lab/internal/runner"
+	"github.com/gpu-lab/gpu-lab/internal/testutil"
 )
 
-func TestRunSummaryFromStateEndpoint(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, `{"node":"gpu-node-01","readings":[{"gpu":"gpu-node-01-00","utilization_percent":95,"memory_used_bytes":16106127360,"memory_total_bytes":17179869184,"temperature_celsius":82,"power_watts":240,"xid_code":79,"health":0,"ecc_dbe_total":0,"throttle_active":1,"allocated":1}]}`)
+func runWithState(t *testing.T, state string, args []string) string {
+	t.Helper()
+	t.Setenv("GPU_LAB_STATE_URL", "http://gpu-lab.test/api/v1/state")
+	client := testutil.HandlerClient(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, state)
 	}))
-	defer server.Close()
-	t.Setenv("GPU_LAB_STATE_URL", server.URL)
-
 	var stdout strings.Builder
-	if err := Run(context.Background(), runner.New(io.Discard, io.Discard), nil, &stdout); err != nil {
+	if err := run(context.Background(), runner.New(io.Discard, io.Discard), args, &stdout, client); err != nil {
 		t.Fatal(err)
 	}
-	output := stdout.String()
+	return stdout.String()
+}
+
+// TestStateEndpointErrorMessages pins the exact user-facing error wording that
+// predates the shared stateclient refactor, including the "nvidia-smi: command"
+// prefix and each compatibility-specific message.
+func TestStateEndpointErrorMessages(t *testing.T) {
+	const sentinel = "injected transport failure"
+	tests := []struct {
+		name       string
+		endpoint   string
+		transport  http.RoundTripper
+		want       string
+		wantPrefix bool
+	}{
+		{
+			name:     "invalid GPU_LAB_STATE_URL",
+			endpoint: "/relative/state",
+			transport: testutil.RoundTripFunc(func(*http.Request) (*http.Response, error) {
+				t.Error("state endpoint reached with an invalid URL")
+				return nil, errors.New("unexpected request")
+			}),
+			want: "nvidia-smi: invalid GPU_LAB_STATE_URL \"/relative/state\"",
+		},
+		{
+			name:     "non-2xx status",
+			endpoint: "http://gpu-lab.test/api/v1/state",
+			transport: testutil.RoundTripFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusServiceUnavailable,
+					Status:     "503 Service Unavailable",
+					Body:       io.NopCloser(strings.NewReader("unavailable")),
+				}, nil
+			}),
+			want: "nvidia-smi: state endpoint returned 503 Service Unavailable",
+		},
+		{
+			name:     "malformed JSON",
+			endpoint: "http://gpu-lab.test/api/v1/state",
+			transport: testutil.HandlerClient(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = io.WriteString(w, "not json")
+			})).Transport,
+			want:       "nvidia-smi: decode synthetic GPU state: ",
+			wantPrefix: true,
+		},
+		{
+			name:     "transport error",
+			endpoint: "http://gpu-lab.test/api/v1/state",
+			transport: testutil.RoundTripFunc(func(*http.Request) (*http.Response, error) {
+				return nil, errors.New(sentinel)
+			}),
+			// http.Client wraps RoundTripper errors with the request URL, exactly
+			// as it did before the shared stateclient refactor.
+			want: "nvidia-smi: query synthetic GPU state: Get \"http://gpu-lab.test/api/v1/state\": " + sentinel,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("GPU_LAB_STATE_URL", test.endpoint)
+			client := &http.Client{Transport: test.transport}
+			var stdout strings.Builder
+			err := run(context.Background(), runner.New(io.Discard, io.Discard), nil, &stdout, client)
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+			if test.wantPrefix {
+				if !strings.HasPrefix(err.Error(), test.want) {
+					t.Fatalf("error = %q, want prefix %q", err.Error(), test.want)
+				}
+				return
+			}
+			if err.Error() != test.want {
+				t.Fatalf("error = %q, want %q", err.Error(), test.want)
+			}
+		})
+	}
+}
+
+func TestRunSummaryFromStateEndpoint(t *testing.T) {
+	output := runWithState(t, `{"node":"gpu-node-01","readings":[{"gpu":"gpu-node-01-00","utilization_percent":95,"memory_used_bytes":16106127360,"memory_total_bytes":17179869184,"temperature_celsius":82,"power_watts":240,"xid_code":79,"health":0,"ecc_dbe_total":0,"throttle_active":1,"allocated":1}]}`, nil)
 	for _, expected := range []string{"NVIDIA-SMI 550.163.01", "NVIDIA H200", "82C", "95%", "79", "15360MiB"} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("output = %q, missing %q", output, expected)
@@ -39,37 +118,19 @@ func TestRunSummaryFromStateEndpoint(t *testing.T) {
 }
 
 func TestRunQueryCSV(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, `{"node":"gpu-node-01","readings":[{"gpu":"gpu-node-01-00","utilization_percent":15,"memory_used_bytes":3355443200,"memory_total_bytes":17179869184,"temperature_celsius":45,"power_watts":80,"xid_code":0,"health":1,"ecc_dbe_total":0,"throttle_active":0,"allocated":0}]}`)
-	}))
-	defer server.Close()
-	t.Setenv("GPU_LAB_STATE_URL", server.URL)
-
-	var stdout strings.Builder
 	args := []string{"--query-gpu=temperature.gpu,memory.used,utilization.gpu", "--format=csv,noheader,nounits"}
-	if err := Run(context.Background(), runner.New(io.Discard, io.Discard), args, &stdout); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := strings.TrimSpace(stdout.String()), "45, 3200, 15"; got != want {
+	output := runWithState(t, `{"node":"gpu-node-01","readings":[{"gpu":"gpu-node-01-00","utilization_percent":15,"memory_used_bytes":3355443200,"memory_total_bytes":17179869184,"temperature_celsius":45,"power_watts":80,"xid_code":0,"health":1,"ecc_dbe_total":0,"throttle_active":0,"allocated":0}]}`, args)
+	if got, want := strings.TrimSpace(output), "45, 3200, 15"; got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
 }
 
 func TestRunQueryCommonFieldsCSV(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, `{"node":"gpu-node-01","readings":[{"gpu":"gpu-node-01-00","utilization_percent":15,"memory_used_bytes":4294967296,"memory_total_bytes":17179869184,"temperature_celsius":45,"power_watts":80,"xid_code":0,"health":1,"ecc_dbe_total":0,"throttle_active":1,"allocated":0}]}`)
-	}))
-	defer server.Close()
-	t.Setenv("GPU_LAB_STATE_URL", server.URL)
-
-	var stdout strings.Builder
 	args := []string{
 		"--query-gpu=driver_version,pci.bus_id,serial,memory.free,utilization.memory,fan.speed,clocks.current.graphics,display_active,display_mode,persistence_mode,mig.mode.current",
 		"--format=csv,noheader,nounits",
 	}
-	if err := Run(context.Background(), runner.New(io.Discard, io.Discard), args, &stdout); err != nil {
-		t.Fatal(err)
-	}
+	output := runWithState(t, `{"node":"gpu-node-01","readings":[{"gpu":"gpu-node-01-00","utilization_percent":15,"memory_used_bytes":4294967296,"memory_total_bytes":17179869184,"temperature_celsius":45,"power_watts":80,"xid_code":0,"health":1,"ecc_dbe_total":0,"throttle_active":1,"allocated":0}]}`, args)
 
 	identity := newGPU("gpu-node-01", "gpu-node-01-00")
 	want := strings.Join([]string{
@@ -85,7 +146,7 @@ func TestRunQueryCommonFieldsCSV(t *testing.T) {
 		"Enabled",
 		"Disabled",
 	}, ", ")
-	if got := strings.TrimSpace(stdout.String()); got != want {
+	if got := strings.TrimSpace(output); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
 }

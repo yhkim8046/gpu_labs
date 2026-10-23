@@ -112,6 +112,13 @@ func (v Verifier) Verify(ctx context.Context, selected scenario.Scenario) Report
 			v.queryCheck(ctx, "thermal threshold", "max(gpu_lab_gpu_temperature_celsius)", func(value float64) bool { return value > 90 }, "temperature is above 90°C"),
 			v.queryCheck(ctx, "throttled utilization", "avg(gpu_lab_gpu_utilization_percent)", func(value float64) bool { return value < 80 }, "utilization is below the high-utilization threshold"),
 		)
+	case "thermal-escalation":
+		generation, err := v.Runner.Output(ctx, "kubectl", "--context", KubeContext, "get", "configmap", scenario.ConfigName, "-n", SystemNS, "-o", "jsonpath={.data.generation}")
+		if err != nil || strings.TrimSpace(generation) == "" {
+			report.Checks = append(report.Checks, Check{Name: "timeline generation", Detail: fmt.Sprintf("cannot read applied generation: %v", err)})
+			break
+		}
+		report.Checks = append(report.Checks, v.queryCheck(ctx, "thermal timeline", thermalTimelineQuery(strings.TrimSpace(generation)), func(value float64) bool { return value == 3 }, "all 3 exporters agree on the applied generation, a fresh timeline phase, and its 24 GPU readings"))
 	case "xid-48":
 		report.Checks = append(report.Checks,
 			v.queryCheck(ctx, "XID 48", "max(gpu_lab_gpu_xid_code)", func(value float64) bool { return value == 48 }, "XID 48 is reported"),
@@ -254,19 +261,196 @@ func (v Verifier) podPhaseCheck(ctx context.Context, name, expected string) Chec
 }
 
 func (v Verifier) podEventCheck(ctx context.Context, name, expected string) Check {
-	var output string
 	err := v.poll(ctx, func() (bool, error) {
-		current, err := v.Runner.Output(ctx, "kubectl", "--context", KubeContext, "get", "events", "-n", DemoNamespace, "--field-selector", "involvedObject.name="+name, "--sort-by=.lastTimestamp", "-o", "go-template={{range .items}}{{.message}}\\n{{end}}")
+		return checkPodEventOnce(ctx, name, expected, v.Runner.Output)
+	})
+	if err != nil {
+		return Check{Name: "pod " + name + " event", Detail: fmt.Sprintf("expected a current-pod event containing %q: %v", expected, err)}
+	}
+	return Check{Name: "pod " + name + " event", Detail: fmt.Sprintf("scheduler event contains %q", expected), Passed: true}
+}
+
+type podIdentity struct {
+	UID       string
+	CreatedAt time.Time
+}
+
+type podEvent struct {
+	Kind       string `json:"kind"`
+	APIVersion string `json:"apiVersion"`
+	Metadata   struct {
+		CreationTimestamp string `json:"creationTimestamp"`
+	} `json:"metadata"`
+	InvolvedObject struct {
+		Kind      string `json:"kind"`
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
+		UID       string `json:"uid"`
+	} `json:"involvedObject"`
+	Message        string `json:"message"`
+	EventTime      string `json:"eventTime"`
+	FirstTimestamp string `json:"firstTimestamp"`
+	LastTimestamp  string `json:"lastTimestamp"`
+	Series         *struct {
+		LastObservedTime string `json:"lastObservedTime"`
+	} `json:"series"`
+}
+
+func checkPodEventOnce(ctx context.Context, name, expected string, output func(context.Context, string, ...string) (string, error)) (bool, error) {
+	podArgs := []string{"--context", KubeContext, "get", "pod", name, "-n", DemoNamespace, "-o", "json"}
+	podJSON, err := output(ctx, "kubectl", podArgs...)
+	if err != nil {
+		return false, fmt.Errorf("read pod identity: %w", err)
+	}
+	identity, err := decodePodIdentity(podJSON, name)
+	if err != nil {
+		return false, err
+	}
+
+	eventsJSON, err := output(ctx, "kubectl", "--context", KubeContext, "get", "events", "-n", DemoNamespace, "--field-selector", "involvedObject.uid="+identity.UID, "-o", "json")
+	if err != nil {
+		return false, fmt.Errorf("read scheduler events for pod UID %q: %w", identity.UID, err)
+	}
+	events, err := decodePodEvents(eventsJSON)
+	if err != nil {
+		return false, err
+	}
+	for _, event := range events {
+		if event.InvolvedObject.Kind != "Pod" || event.InvolvedObject.Name != name || event.InvolvedObject.Namespace != DemoNamespace || event.InvolvedObject.UID != identity.UID {
+			continue
+		}
+		if !strings.Contains(strings.ToLower(event.Message), strings.ToLower(expected)) {
+			continue
+		}
+		eventAt, err := relevantPodEventTime(event)
 		if err != nil {
 			return false, err
 		}
-		output = current
-		return strings.Contains(strings.ToLower(output), strings.ToLower(expected)), nil
-	})
-	if err != nil {
-		return Check{Name: "pod " + name + " event", Detail: fmt.Sprintf("expected event containing %q, got %q: %v", expected, strings.TrimSpace(output), err)}
+		if eventAt.Before(identity.CreatedAt) {
+			continue
+		}
+
+		currentJSON, err := output(ctx, "kubectl", podArgs...)
+		if err != nil {
+			return false, fmt.Errorf("recheck pod identity before accepting event: %w", err)
+		}
+		current, err := decodePodIdentity(currentJSON, name)
+		if err != nil {
+			return false, err
+		}
+		if current.UID != identity.UID {
+			return false, fmt.Errorf("pod %q was recreated while verifying its scheduler event", name)
+		}
+		return true, nil
 	}
-	return Check{Name: "pod " + name + " event", Detail: fmt.Sprintf("scheduler event contains %q", expected), Passed: true}
+	return false, nil
+}
+
+func decodePodIdentity(raw, expectedName string) (podIdentity, error) {
+	var pod struct {
+		Kind     string `json:"kind"`
+		Metadata struct {
+			Name              string `json:"name"`
+			Namespace         string `json:"namespace"`
+			UID               string `json:"uid"`
+			CreationTimestamp string `json:"creationTimestamp"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal([]byte(raw), &pod); err != nil {
+		return podIdentity{}, fmt.Errorf("decode current pod identity: %w", err)
+	}
+	if pod.Kind != "Pod" || pod.Metadata.Name != expectedName || pod.Metadata.Namespace != DemoNamespace {
+		return podIdentity{}, fmt.Errorf("pod identity response does not describe %s/%s", DemoNamespace, expectedName)
+	}
+	if pod.Metadata.UID == "" {
+		return podIdentity{}, fmt.Errorf("pod %s/%s has no UID; scheduler event is unverified", DemoNamespace, expectedName)
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, pod.Metadata.CreationTimestamp)
+	if err != nil || createdAt.IsZero() {
+		return podIdentity{}, fmt.Errorf("pod %s/%s has an invalid creationTimestamp %q", DemoNamespace, expectedName, pod.Metadata.CreationTimestamp)
+	}
+	return podIdentity{UID: pod.Metadata.UID, CreatedAt: createdAt}, nil
+}
+
+func decodePodEvents(raw string) ([]podEvent, error) {
+	var list struct {
+		Kind  string            `json:"kind"`
+		Items []json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(raw), &list); err != nil {
+		return nil, fmt.Errorf("decode scheduler event list: %w", err)
+	}
+	if list.Kind != "EventList" && list.Kind != "List" {
+		return nil, fmt.Errorf("scheduler event response has kind %q", list.Kind)
+	}
+	if list.Items == nil {
+		return nil, errors.New("scheduler event response has no items; event is unverified")
+	}
+	events := make([]podEvent, 0, len(list.Items))
+	for index, rawItem := range list.Items {
+		var event podEvent
+		if err := json.Unmarshal(rawItem, &event); err != nil {
+			return nil, fmt.Errorf("decode scheduler event %d: %w", index, err)
+		}
+		if event.Kind != "" && event.Kind != "Event" {
+			return nil, fmt.Errorf("scheduler event %d has kind %q", index, event.Kind)
+		}
+		if event.InvolvedObject.Kind == "" || event.InvolvedObject.Name == "" || event.InvolvedObject.Namespace == "" || event.InvolvedObject.UID == "" {
+			return nil, fmt.Errorf("scheduler event %d has incomplete involvedObject identity; event is unverified", index)
+		}
+		if _, err := relevantPodEventTime(event); err != nil {
+			return nil, fmt.Errorf("scheduler event %d: %w", index, err)
+		}
+		events = append(events, event)
+	}
+	return events, nil
+}
+
+func relevantPodEventTime(event podEvent) (time.Time, error) {
+	var created time.Time
+	if event.Metadata.CreationTimestamp != "" {
+		parsed, err := time.Parse(time.RFC3339Nano, event.Metadata.CreationTimestamp)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("event has invalid metadata.creationTimestamp %q", event.Metadata.CreationTimestamp)
+		}
+		if !parsed.IsZero() {
+			created = parsed
+		}
+	}
+	occurrences := []struct {
+		name  string
+		value string
+	}{
+		{name: "eventTime", value: event.EventTime},
+		{name: "firstTimestamp", value: event.FirstTimestamp},
+		{name: "lastTimestamp", value: event.LastTimestamp},
+	}
+	if event.Series != nil {
+		occurrences = append(occurrences, struct {
+			name  string
+			value string
+		}{name: "series.lastObservedTime", value: event.Series.LastObservedTime})
+	}
+	var latest time.Time
+	for _, occurrence := range occurrences {
+		if occurrence.value == "" {
+			continue
+		}
+		parsed, err := time.Parse(time.RFC3339Nano, occurrence.value)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("event has invalid %s %q", occurrence.name, occurrence.value)
+		}
+		if !parsed.IsZero() && parsed.After(latest) {
+			latest = parsed
+		}
+	}
+	if !latest.IsZero() {
+		return latest, nil
+	}
+	if created.IsZero() {
+		return time.Time{}, fmt.Errorf("event has no usable occurrence timestamp or metadata.creationTimestamp %q", event.Metadata.CreationTimestamp)
+	}
+	return created, nil
 }
 
 func (v Verifier) noScenarioPodsCheck(ctx context.Context) Check {

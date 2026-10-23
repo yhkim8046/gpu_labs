@@ -2,9 +2,11 @@
 
 GitHub Release에는 수강생용 `gpu`, 호환용 `gpu-lab`, synthetic telemetry용 `nvidia-smi`, 그리고 rdma-core 명령 형식의 `ibstat`, `ibstatus`, `ibv_devinfo` macOS, Linux, Windows 바이너리가 함께 업로드됩니다. GPU Lab 내부의 `nvidia-device-plugin`과 `dcgm-exporter`는 `gpu helm install`이 실제 Helm release로 배포하는 교육용 runtime image입니다.
 
+아래 `v0.3.0` 표기는 이번 릴리스 준비 대상의 예시입니다. tag publish 후 checksummed archive smoke와 설치 E2E가 확인되기 전에는 공개되었거나 검증을 마친 release로 간주하지 않습니다.
+
 ## 설치
 
-Release tag가 `v0.2.0`이면 archive 안의 버전 문자열은 `0.2.0`입니다. 자신의 OS와 CPU architecture에 맞는 asset을 선택합니다.
+Release tag가 `v0.3.0`이면 archive 안의 버전 문자열은 `0.3.0`입니다. 자신의 OS와 CPU architecture에 맞는 asset을 선택합니다.
 
 수강생에게는 수동 archive 선택보다 공식 설치 스크립트를 권장합니다. 스크립트가 최신 Release, OS, CPU architecture를 자동으로 선택하고 checksum 및 필수 바이너리를 검증합니다.
 
@@ -19,17 +21,17 @@ bash gpu-lab-install.sh
 
 | 환경 | OS | architecture | archive |
 | --- | --- | --- | --- |
-| Apple Silicon Mac | `darwin` | `arm64` | `gpu-lab_0.2.0_darwin_arm64.tar.gz` |
-| Intel Mac | `darwin` | `amd64` | `gpu-lab_0.2.0_darwin_amd64.tar.gz` |
-| Linux PC/VM | `linux` | `amd64` 또는 `arm64` | `gpu-lab_0.2.0_linux_<arch>.tar.gz` |
-| Windows | `windows` | `amd64` 또는 `arm64` | `gpu-lab_0.2.0_windows_<arch>.zip` |
+| Apple Silicon Mac | `darwin` | `arm64` | `gpu-lab_0.3.0_darwin_arm64.tar.gz` |
+| Intel Mac | `darwin` | `amd64` | `gpu-lab_0.3.0_darwin_amd64.tar.gz` |
+| Linux PC/VM | `linux` | `amd64` 또는 `arm64` | `gpu-lab_0.3.0_linux_<arch>.tar.gz` |
+| Windows | `windows` | `amd64` 또는 `arm64` | `gpu-lab_0.3.0_windows_<arch>.zip` |
 
 ### macOS / Linux
 
 아래 예시는 Apple Silicon Mac입니다. Linux에서는 `OS=linux`, architecture가 다르면 `ARCH=amd64`로 바꿉니다.
 
 ```bash
-VERSION=0.2.0
+VERSION=0.3.0
 OS=darwin
 ARCH=arm64
 ASSET="gpu-lab_${VERSION}_${OS}_${ARCH}.tar.gz"
@@ -62,7 +64,7 @@ export PATH="$HOME/.local/bin:$PATH"
 Windows native 환경에서는 `.zip` asset을 사용합니다. WSL2 안에서 실행한다면 Windows asset이 아니라 Linux asset을 설치합니다.
 
 ```powershell
-$Version = "0.2.0"
+$Version = "0.3.0"
 $Arch = "amd64"
 $Asset = "gpu-lab_${Version}_windows_${Arch}.zip"
 $BaseUrl = "https://github.com/yhkim8046/gpu_labs/releases/download/v$Version"
@@ -129,11 +131,15 @@ Remove-Item "$HOME\bin\gpu.exe", "$HOME\bin\nvidia-smi.exe", "$HOME\bin\ibstat.e
 
 ## Release 생성
 
-`v*` tag push가 GitHub Actions release workflow를 시작합니다.
+변경은 PR 검토·승인 후 `main`으로 merge하고 해당 merge commit의 CI가 성공한 뒤 release tag를 만듭니다. `v*` tag push가 기존 GitHub Actions release workflow를 시작하며, tag commit이 `main`에 포함되지 않았거나 동일 commit의 main CI 성공 기록이 없으면 image/chart/binary publish 전에 중단합니다.
+
+PR의 CI는 공개 업로드 없이 GoReleaser snapshot archive와 checksum을 만들고 Linux archive의 명령을 점검합니다. 실제 공개 archive의 macOS/Linux 점검과 설치 기반 E2E는 tag release workflow가 따로 실행하므로 snapshot 성공과 구분합니다. E2E는 새 GitHub-hosted runner의 전용 kind cluster에서 실행합니다. 운영·공유 cluster를 테스트 대상으로 사용하지 않습니다.
+
+GitHub Actions에서 차트 workflow를 직접 실행할 때는 `v`로 시작하는 유효한 semantic-version tag를 선택해야 합니다. branch ref로 실행하면 version 검증 단계에서 중단됩니다.
 
 ```bash
-git tag -a v0.2.0 -m "gpu-lab v0.2.0"
-git push origin v0.2.0
+git tag -a v0.3.0 -m "gpu-lab v0.3.0"
+git push origin v0.3.0
 ```
 
 로컬에서 GitHub 업로드 없이 cross-platform artifact를 확인하려면 GoReleaser를 설치한 뒤 실행합니다.
@@ -146,17 +152,17 @@ make release-snapshot
 
 ## Container runtime image
 
-`v1.0.0` tag를 push하면 `.github/workflows/publish-image.yml`이 GHCR에 다음 이미지를 생성합니다.
+release tag와 같은 버전으로 `.github/workflows/release.yml`이 image publish workflow를 호출합니다. 예를 들어 `v0.3.0` tag라면 GHCR image tag는 `0.3.0`입니다.
 
 ```text
-ghcr.io/yhkim8046/gpu-lab-runtime:1.0.0
+ghcr.io/yhkim8046/gpu-lab-runtime:0.3.0
 ```
 
 이미지는 `linux/amd64`와 `linux/arm64` manifest를 함께 제공하며, tag에는 `latest`를 사용하지 않습니다. 강의에서는 CLI release version과 같은 image tag를 고정해야 합니다.
 
 ```bash
-docker pull ghcr.io/yhkim8046/gpu-lab-runtime:1.0.0
-docker buildx imagetools inspect ghcr.io/yhkim8046/gpu-lab-runtime:1.0.0
+docker pull ghcr.io/yhkim8046/gpu-lab-runtime:0.3.0
+docker buildx imagetools inspect ghcr.io/yhkim8046/gpu-lab-runtime:0.3.0
 ```
 
 Release binary로 `gpu create`를 실행하면 CLI version과 같은 tag의 runtime image를 자동으로 pull한 뒤 kind node에 load합니다. component는 이후 `gpu helm install ...`로 설치합니다. `go run` 개발 모드는 기존처럼 local `gpu-lab:dev` image를 build합니다.

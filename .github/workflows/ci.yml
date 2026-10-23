@@ -2,23 +2,50 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+# A same-repository branch push and its pull_request event share a group, so
+# only the latest full run for that head branch remains active. Fork branches
+# stay isolated by their source repository.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   go:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.x'
           cache: true
+      - name: Install matching Prometheus query test engine
+        env:
+          PROMETHEUS_VERSION: '3.13.1'
+        run: |
+          set -Eeuo pipefail
+          tools_dir="${RUNNER_TEMP}/prometheus-tools"
+          mkdir -p "$tools_dir"
+          cd "$tools_dir"
+          archive="prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz"
+          base="https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}"
+          curl --fail --location --retry 3 --output "$archive" "$base/$archive"
+          curl --fail --location --retry 3 --output sha256sums.txt "$base/sha256sums.txt"
+          awk -v file="$archive" '$2 == file {print; found=1} END {if (!found) exit 1}' sha256sums.txt > selected.sha256
+          sha256sum --check selected.sha256
+          tar -xzf "$archive" --strip-components=1 "prometheus-${PROMETHEUS_VERSION}.linux-amd64/promtool"
+          echo "PROMTOOL_PATH=$tools_dir/promtool" >> "$GITHUB_ENV"
       - run: bash -n scripts/install.sh
       - run: go test ./...
+      - run: go test -race ./internal/training ./internal/exporter ./internal/deviceplugin
       - run: go vet ./...
       - run: go build ./cmd/gpu-lab ./cmd/nvidia-smi ./cmd/ibstat ./cmd/ibstatus ./cmd/ibv-devinfo ./cmd/nvidia-device-plugin ./cmd/dcgm-exporter ./cmd/training-worker
 
@@ -26,6 +53,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
@@ -33,16 +62,55 @@ jobs:
           push: false
           tags: gpu-lab:ci
 
-  e2e:
+  release-snapshot:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: true
+      - name: Build release archives without publishing
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --snapshot --clean --parallelism 2
+      - name: Verify checksums and native archive
+        run: |
+          set -Eeuo pipefail
+          (cd dist && sha256sum --check checksums.txt)
+          snapshot_version="$(jq -r '.version' dist/metadata.json)"
+          archive="dist/gpu-lab_${snapshot_version}_linux_amd64.tar.gz"
+          extracted="${RUNNER_TEMP}/gpu-lab-snapshot"
+          mkdir -p "$extracted"
+          tar -xzf "$archive" -C "$extracted"
+          ./scripts/release-smoke.sh "$extracted" "$snapshot_version"
+      - name: Save snapshot verification metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-snapshot-metadata
+          path: |
+            dist/checksums.txt
+            dist/metadata.json
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
     env:
       KIND_EXPERIMENTAL_PROVIDER: docker
       GPU_LAB_HELM_CHART_VERSION: '87.21.0'
       HELM_VERSION: 'v4.2.3'
       KUBECTL_VERSION: 'v1.36.1'
+      GPU_LAB_MODE: synthetic
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.x'
@@ -76,5 +144,13 @@ jobs:
           echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
           sudo install -m 0755 kubectl /usr/local/bin/kubectl
           kubectl version --client=true --output=yaml
-      - name: Run kind and Helm integration tests
+      - name: Run full kind and Helm integration suite
         run: ./test/e2e/run.sh
+      - name: Upload E2E logs and failure snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-lab-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/gpu-lab-e2e-logs/
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,9 +1,8 @@
 name: Publish Helm charts
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_call:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,6 +14,21 @@ jobs:
     env:
       HELM_VERSION: v4.2.3
     steps:
+      - name: Validate selected release tag and chart version
+        env:
+          CHART_VERSION: ${{ github.ref_name }}
+        run: |
+          set -Eeuo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$GITHUB_REF" != refs/tags/v* ]]; then
+            echo "::error::Manual chart publishing requires selecting a v-prefixed release tag."
+            exit 1
+          fi
+          version="${CHART_VERSION#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Chart version must be a valid v-prefixed semantic version; got '$CHART_VERSION'."
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
 

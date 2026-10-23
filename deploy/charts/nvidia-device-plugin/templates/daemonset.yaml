@@ -29,6 +29,8 @@ spec:
         - name: device-plugin
           image: {{ .Values.image | quote }}
           imagePullPolicy: {{ .Values.imagePullPolicy }}
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
           command: ["/usr/local/bin/nvidia-device-plugin"]
           env:
             - name: NODE_NAME

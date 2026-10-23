@@ -7,10 +7,54 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
-  release:
+  validate-source:
+    name: Require merged source and successful CI
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check release commit is on main and passed CI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          successful="$(gh run list --repo "$GITHUB_REPOSITORY" \
+            --workflow CI --branch main --commit "$GITHUB_SHA" \
+            --json status,conclusion \
+            --jq '[.[] | select(.status == "completed" and .conclusion == "success")] | length')"
+          test "$successful" -ge 1
+
+  publish-image:
+    name: Publish runtime image
+    needs: validate-source
+    uses: ./.github/workflows/publish-image.yml
+    permissions:
+      contents: read
+      packages: write
+    secrets: inherit
+
+  publish-charts:
+    name: Publish Helm charts
+    needs: validate-source
+    uses: ./.github/workflows/publish-charts.yml
+    permissions:
+      contents: read
+      packages: write
+    secrets: inherit
+
+  release-binaries:
+    name: Publish CLI release
+    needs: [publish-image, publish-charts]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,3 +74,169 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  archive-smoke:
+    name: Verify published archive on ${{ matrix.os }}
+    needs: release-binaries
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Download and verify native release archive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          case "$(uname -s)" in
+            Linux) goos=linux ;;
+            Darwin) goos=darwin ;;
+            *) echo "unsupported runner OS: $(uname -s)" >&2; exit 1 ;;
+          esac
+          case "$(uname -m)" in
+            amd64|x86_64) goarch=amd64 ;;
+            arm64|aarch64) goarch=arm64 ;;
+            *) echo "unsupported runner architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+
+          version="${GITHUB_REF_NAME#v}"
+          asset="gpu-lab_${version}_${goos}_${goarch}.tar.gz"
+          release_dir="${RUNNER_TEMP}/gpu-lab-release"
+          mkdir -p "$release_dir"
+          gh release download "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "$asset" \
+            --pattern checksums.txt \
+            --dir "$release_dir"
+          test -f "$release_dir/$asset"
+          test -f "$release_dir/checksums.txt"
+
+          checksum_line="$(awk -v asset="$asset" '$2 == asset { print; found = 1; exit } END { if (!found) exit 1 }' "$release_dir/checksums.txt")"
+          if command -v sha256sum >/dev/null 2>&1; then
+            printf '%s\n' "$checksum_line" | (cd "$release_dir" && sha256sum --check -)
+          else
+            printf '%s\n' "$checksum_line" | (cd "$release_dir" && shasum -a 256 --check -)
+          fi
+
+          mkdir -p "$release_dir/extracted"
+          tar -xzf "$release_dir/$asset" -C "$release_dir/extracted"
+          ./scripts/release-smoke.sh "$release_dir/extracted" "$GITHUB_REF_NAME"
+
+  installed-e2e:
+    name: Installed release end-to-end
+    needs: archive-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      KIND_EXPERIMENTAL_PROVIDER: docker
+      GPU_LAB_HELM_CHART_VERSION: '87.21.0'
+      GPU_LAB_IMAGE_SOURCE: registry
+      E2E_KEEP_CLUSTER: '1'
+      HELM_VERSION: 'v4.2.3'
+      KUBECTL_VERSION: 'v1.36.1'
+      GPU_LAB_MODE: synthetic
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: true
+
+      - name: Install pinned kind
+        env:
+          KIND_VERSION: 'v0.32.0'
+        run: |
+          go install sigs.k8s.io/kind@"${KIND_VERSION}"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install pinned Helm
+        run: |
+          curl --fail --silent --show-error --location --retry 3 \
+            --output "helm-${HELM_VERSION}-linux-amd64.tar.gz" \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            --output "helm-${HELM_VERSION}-linux-amd64.tar.gz.sha256sum" \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz.sha256sum"
+          sha256sum -c "helm-${HELM_VERSION}-linux-amd64.tar.gz.sha256sum"
+          tar -xzf "helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          sudo install linux-amd64/helm /usr/local/bin/helm
+          helm version --short
+
+      - name: Install pinned kubectl
+        run: |
+          curl --fail --silent --show-error --location --retry 3 \
+            --output kubectl \
+            "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          curl --fail --silent --show-error --location --retry 3 \
+            --output kubectl.sha256 \
+            "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256"
+          echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
+          sudo install -m 0755 kubectl /usr/local/bin/kubectl
+          kubectl version --client=true --output=yaml
+
+      - name: Install published CLI with the release installer
+        run: |
+          install_dir="${RUNNER_TEMP}/gpu-lab-installed/bin"
+          mkdir -p "$install_dir"
+          GPU_LAB_VERSION="$GITHUB_REF_NAME" \
+            GPU_LAB_INSTALL_DIR="$install_dir" \
+            bash ./scripts/install.sh
+          echo "GPU_LAB_CLI=${install_dir}/gpu" >> "$GITHUB_ENV"
+          "${install_dir}/gpu" version
+
+      - name: Run kind E2E using the installed CLI and registry image
+        env:
+          GPU_LAB_E2E_LOG_DIR: ${{ runner.temp }}/gpu-lab-e2e-logs
+        run: ./test/e2e/run.sh
+
+      - name: Upload E2E execution logs and metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-installed-e2e-logs-and-metrics
+          path: ${{ runner.temp }}/gpu-lab-e2e-logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Export kind logs
+        if: always()
+        run: |
+          if kind get clusters | grep -qx 'gpu-lab'; then
+            log_dir="${RUNNER_TEMP}/gpu-lab-kind-logs"
+            if [[ ! -d "$log_dir" ]] || [[ -z "$(find "$log_dir" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+              mkdir -p "$log_dir"
+              kind export logs "$log_dir" --name gpu-lab || true
+            fi
+          fi
+
+      - name: Upload kind logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-installed-e2e-kind-logs
+          path: ${{ runner.temp }}/gpu-lab-kind-logs
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Delete temporary kind cluster
+        if: always()
+        run: |
+          if kind get clusters | grep -qx 'gpu-lab'; then
+            kind delete cluster --name gpu-lab
+          fi

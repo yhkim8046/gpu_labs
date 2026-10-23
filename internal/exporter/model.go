@@ -70,6 +70,8 @@ type StateSnapshot struct {
 	Node          string        `json:"node"`
 	Scenario      string        `json:"scenario"`
 	Generation    string        `json:"generation"`
+	Phase         string        `json:"phase,omitempty"`
+	StartedAt     time.Time     `json:"started_at"`
 	ExporterFault string        `json:"exporter_fault,omitempty"`
 	UpdatedAt     time.Time     `json:"updated_at"`
 	Readings      []Reading     `json:"readings"`
@@ -84,6 +86,9 @@ type Model struct {
 	scenario   scenario.Scenario
 	generation string
 	updatedAt  time.Time
+	startedAt  time.Time
+	phase      string
+	phaseIndex int
 	readings   []Reading
 	fault      string
 	expiresAt  time.Time
@@ -108,7 +113,15 @@ func NewModel(nodeName string, gpuCount int) *Model {
 }
 
 func (m *Model) Apply(s scenario.Scenario, generation string) {
+	m.ApplyAt(s, generation, m.currentTime())
+}
+
+// ApplyAt anchors timelines and expiration to a shared ConfigMap timestamp.
+func (m *Model) ApplyAt(s scenario.Scenario, generation string, startedAt time.Time) {
 	appliedAt := m.currentTime()
+	if startedAt.IsZero() {
+		startedAt = appliedAt
+	}
 	matched := m.selectorMatches(s.Spec.Targets.Selector)
 	active := m.normalScenario()
 	if matched {
@@ -120,13 +133,16 @@ func (m *Model) Apply(s scenario.Scenario, generation string) {
 	var expiresAt time.Time
 	if matched && strings.TrimSpace(s.Spec.Duration) != "" {
 		if duration, err := time.ParseDuration(s.Spec.Duration); err == nil {
-			expiresAt = appliedAt.Add(duration)
+			expiresAt = startedAt.Add(duration)
 		}
 	}
 	m.mu.Lock()
 	m.scenario = active
 	m.generation = generation
 	m.updatedAt = appliedAt.UTC()
+	m.startedAt = startedAt.UTC()
+	m.phase = ""
+	m.phaseIndex = -1
 	m.readings = readings
 	m.fault = fault
 	m.expiresAt = expiresAt
@@ -150,6 +166,8 @@ func (m *Model) Snapshot() StateSnapshot {
 		Node:          m.nodeName,
 		Scenario:      m.scenario.Name(),
 		Generation:    m.generation,
+		Phase:         m.phase,
+		StartedAt:     m.startedAt,
 		ExporterFault: m.fault,
 		UpdatedAt:     m.updatedAt,
 		Readings:      readings,
@@ -184,6 +202,7 @@ func (m *Model) Metrics() string {
 	writeMetricHelp(&b, "gpu_lab_exporter_up", "Synthetic dcgm-exporter projection availability.", "gauge")
 	writeMetricHelp(&b, "gpu_lab_scenario_info", "Active gpu-lab scenario.", "gauge")
 	writeMetricHelp(&b, "gpu_lab_scenario_generation", "Applied scenario generation.", "gauge")
+	writeMetricHelp(&b, "gpu_lab_scenario_phase", "Current synthetic scenario timeline phase.", "gauge")
 	writeMetricHelp(&b, "gpu_lab_ib_port_up", "Synthetic InfiniBand HCA port availability; one means the port is up.", "gauge")
 	writeMetricHelp(&b, "gpu_lab_ib_port_state", "Synthetic InfiniBand HCA port state; the state and physical_state labels describe the port.", "gauge")
 	writeMetricHelp(&b, "gpu_lab_ib_link_rate_gbps", "Synthetic InfiniBand link rate in gigabits per second.", "gauge")
@@ -222,14 +241,21 @@ func (m *Model) Metrics() string {
 		fmt.Fprintf(&b, "gpu_lab_gpu_throttle_active{%s} %d\n", throttleLabels, reading.ThrottleActive)
 		fmt.Fprintf(&b, "gpu_lab_gpu_allocated{%s} %d\n", labels, reading.Allocated)
 	}
-	capacity := scenarioDefaultGPUCount(m.scenario.Spec.Metrics.GPUCapacity, DefaultGPUCount)
-	allocatable := scenarioDefaultGPUCount(m.scenario.Spec.Metrics.GPUAllocatable, capacity)
+	activeMetrics := m.scenario.Spec.Metrics
+	if m.phaseIndex >= 0 && m.phaseIndex < len(m.scenario.Spec.Timeline) {
+		activeMetrics = m.scenario.Spec.Timeline[m.phaseIndex].Metrics
+	}
+	capacity := scenarioDefaultGPUCount(activeMetrics.GPUCapacity, DefaultGPUCount)
+	allocatable := scenarioDefaultGPUCount(activeMetrics.GPUAllocatable, capacity)
 	nodeLabels := fmt.Sprintf(`node="%s"`, escapeLabel(m.nodeName))
 	fmt.Fprintf(&b, "gpu_lab_node_gpu_capacity{%s} %d\n", nodeLabels, capacity)
 	fmt.Fprintf(&b, "gpu_lab_node_gpu_allocatable{%s} %d\n", nodeLabels, allocatable)
 	fmt.Fprintf(&b, "gpu_lab_exporter_up{node=\"%s\"} 1\n", escapeLabel(m.nodeName))
 	fmt.Fprintf(&b, "gpu_lab_scenario_info{node=\"%s\",scenario=\"%s\"} 1\n", escapeLabel(m.nodeName), escapeLabel(m.scenario.Name()))
 	fmt.Fprintf(&b, "gpu_lab_scenario_generation{node=\"%s\"} %s\n", escapeLabel(m.nodeName), floatString(parseGeneration(m.generation)))
+	if m.phase != "" {
+		fmt.Fprintf(&b, "gpu_lab_scenario_phase{node=\"%s\",scenario=\"%s\",phase=\"%s\",generation=\"%s\"} 1\n", escapeLabel(m.nodeName), escapeLabel(m.scenario.Name()), escapeLabel(m.phase), escapeLabel(m.generation))
+	}
 	fabricLabels := fmt.Sprintf(`node="%s",hca="%s",port="%d",link_layer="%s"`,
 		escapeLabel(m.nodeName), escapeLabel(m.fabric.HCA), m.fabric.Port, escapeLabel(m.fabric.LinkLayer))
 	fabricStateLabels := fmt.Sprintf(`%s,state="%s",physical_state="%s"`, fabricLabels,
@@ -398,6 +424,14 @@ func (m *Model) refreshExpired() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.expiresAt.IsZero() || now.Before(m.expiresAt) {
+		if step, index, ok := m.scenario.PhaseAt(now.Sub(m.startedAt)); ok && index != m.phaseIndex {
+			active := m.scenario
+			active.Spec.Metrics = step.Metrics
+			m.readings = m.buildReadings(active)
+			m.phase = step.Phase
+			m.phaseIndex = index
+			m.updatedAt = now.UTC()
+		}
 		return
 	}
 	normal := m.normalScenario()
@@ -405,6 +439,8 @@ func (m *Model) refreshExpired() {
 	m.readings = m.buildReadings(normal)
 	m.fabric = m.buildFabricReading(normal)
 	m.fault = ""
+	m.phase = ""
+	m.phaseIndex = -1
 	m.expiresAt = time.Time{}
 	m.updatedAt = now.UTC()
 }

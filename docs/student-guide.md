@@ -4,6 +4,8 @@ GPU가 없는 노트북에서 Kubernetes GPU Infrastructure의 설치, 모니터
 
 gpu-lab은 실제 GPU나 CUDA를 제공하지 않습니다. Kubernetes GPU scheduling, Device Plugin, DCGM Exporter, Prometheus, Grafana의 운영 흐름을 교육용으로 재현합니다.
 
+운영자 대상 유료 강의 자료는 [Course Package](course/README.md)(capstone 3종·체크시트·루브릭)에, 환경 문제 진단은 [Troubleshooting](troubleshooting.md)에 있습니다.
+
 ## 1. CLI 설치
 
 수강생은 Go를 설치하거나 소스 저장소를 clone하지 않고 공식 설치 스크립트로 CLI를 설치할 수 있습니다. 설치 스크립트가 최신 Release의 OS·CPU별 archive를 선택하고 checksum을 확인한 뒤 `gpu`, `gpu-lab`, `nvidia-smi`를 설치합니다.
@@ -35,7 +37,7 @@ export PATH="$HOME/.local/bin:$PATH"
 Windows native 환경에서는 `.zip` asset을 사용합니다. 아래는 일반적인 Intel/AMD 64-bit Windows 예시이며, ARM Windows는 `amd64`를 `arm64`로 바꿉니다.
 
 ```powershell
-$Version = "0.2.0"
+$Version = "0.2.3"
 $Arch = "amd64"
 $Asset = "gpu-lab_${Version}_windows_${Arch}.zip"
 $BaseUrl = "https://github.com/yhkim8046/gpu_labs/releases/download/v$Version"
@@ -54,6 +56,31 @@ Copy-Item ".\gpu-lab-$Version\gpu.exe" "$HOME\bin\gpu.exe" -Force
 $env:Path += ";$HOME\bin"
 & "$HOME\bin\gpu-lab.exe" version
 ```
+
+설치 예제의 `v0.2.3`는 로컬에서 확인한 release tag이며, 그 스냅샷에는 분산학습(`gpu training`)과 InfiniBand/RDMA 실습(`gpu ibstat`, `gpu ibstatus`, `gpu ibv_devinfo`)이 포함되어 있지 않습니다. 기본 22 scenario와 위 명령들은 그 tag 이후에 추가되었지만 아직 커밋·release되지 않은 로컬 수정본에만 있습니다. 따라서 이번 기능은 현재 수정본 checkout에서 직접 빌드해야 하고, 공개 저장소를 clone하는 것만으로는 같은 산출물이 나오지 않습니다.
+
+macOS/Linux/WSL2에서 현재 수정본 checkout을 빌드하는 예시(Bash):
+
+```bash
+cd gpu_labs          # 강의 측이 배부한 수정본 checkout 위치
+mkdir -p bin
+go build -o bin/gpu ./cmd/gpu-lab
+export PATH="$PWD/bin:$PATH"
+gpu version
+```
+
+Windows에서 같은 checkout을 빌드하는 예시(PowerShell):
+
+```powershell
+Set-Location .\gpu-lab-src
+New-Item -ItemType Directory -Force -Path ".\bin" | Out-Null
+go build -o ".\bin\gpu.exe" ".\cmd\gpu-lab"
+$env:Path += ";$PWD\bin"
+gpu.exe version
+```
+
+강의는 training/fabric 산출물을 위와 같이 로컬 수정본 checkout의 source build로 준비해 배부해야 합니다(아직 그런 산출물이 배포돼 있는 것은 아닙니다). Go toolchain이 없는 수강생은 배부된 빌드 산출물을 받고, release binary 경로만 사용하는 수강생은 `v0.2.3` binary의 16개 GPU/XID/관찰 시나리오까지만 학습 범위로 둡니다.
+
 
 새 PowerShell 창에서도 사용하려면 `$HOME\bin`을 Windows 사용자 `PATH`에 추가합니다.
 
@@ -93,7 +120,7 @@ gpu-lab context list
 kubectl --context gpu-lab get nodes -o wide
 ```
 
-기본 클러스터는 control-plane 1개와 GPU worker 3개로 구성됩니다.
+기본 클러스터는 GPU worker 3개와 control-plane(CPU only) 1개로 구성됩니다. GPU device plugin이 worker당 8개의 synthetic GPU를 등록하므로 GPU 총량은 3×8 = 24개이고, GPU 장비를 보유하지 않는 control-plane까지 더해 kind node는 총 4개입니다.
 
 ```text
 gpu-lab-control-plane
@@ -207,6 +234,14 @@ gpu-lab scenario reset
 | gpu-fragmentation | Node별 GPU fragmentation | Node별 여유량 |
 | exporter-down | 관측 계층 장애 | Prometheus target down |
 | gpu-idle | 기존 idle 실습 | 호환용 alias |
+| thermal-escalation | 단계형 thermal timeline(YAML 정의·파서만 지원) | YAML에 단계 정의만 존재. 82/96°C 관찰 가능 여부는 라이브 확인 후 기재 |
+| ib-link-down | IB port 단절과 training 영향 | port down, link-down counter |
+| ib-rate-degraded | negotiated rate 저하 | rate 25 Gbps, fabric/AllReduce latency 증가 |
+| ib-symbol-errors | 물리 링크 오류·recovery | symbol/link recovery counter 증가 |
+| rdma-retry-storm | RDMA retry·timeout | retry/timeout 및 fabric retry 증가 |
+| ib-congestion | 송신 큐 압박 | xmit wait/discard, fabric delay 증가 |
+
+22개 기본 scenario는 위 표와 같습니다. 시나리오의 정량 구분은 [Scenario Runbook](scenarios.md)을 기준으로 하며, release tag `v0.2.3` binary에는 16개 GPU/XID 시나리오만 포함되어 있습니다. 분산학습 시나리오(`gpu training run/inject/recover`)는 scenario 표가 아니라 [Distributed Training Runbook](distributed-training.md)의 drill로 실습합니다.
 
 ## 8. 핵심 5개 시나리오
 

@@ -47,7 +47,7 @@ go run ./cmd/gpu-lab create
 `create`는 base cluster만 준비합니다.
 
 1. release binary라면 CLI version에 맞는 GHCR runtime image를 pull하고, 소스 실행 모드라면 `gpu-lab:dev` image를 빌드한다.
-2. control-plane 1개와 fake GPU worker 3개로 kind cluster를 만든다.
+2. GPU worker 3개(worker당 8 GPU, 총 24)와 control-plane(CPU only) 1개, kind node 총 4개로 kind cluster를 만든다.
 3. runtime image를 kind node에 load하고 모든 node가 Ready일 때까지 기다린다.
 
 이 시점에는 GPU capacity, exporter, Prometheus, Grafana가 아직 없습니다. 이것이 강의의 시작 상태입니다.
@@ -76,7 +76,7 @@ GPU_LAB_HELM_CHART_VERSION=87.21.0 gpu helm install monitoring
 gpu create --registry
 
 # 특정 release image 사용
-gpu create --registry --image ghcr.io/<github-owner>/gpu-lab-runtime:1.0.0
+gpu create --registry --image ghcr.io/<github-owner>/gpu-lab-runtime:0.3.0
 
 # local image build 사용
 gpu create --local
@@ -143,6 +143,14 @@ gpu scenario run gpu-capacity-mismatch
 gpu scenario run node-selector-mismatch
 gpu scenario run gpu-fragmentation
 gpu verify gpu-fragmentation
+gpu scenario run thermal-escalation   # 3분 동안 baseline → warning → critical → recovery
+gpu metrics --query gpu_lab_scenario_phase
+gpu verify thermal-escalation
+gpu scenario run ib-link-down
+gpu scenario run ib-rate-degraded
+gpu scenario run ib-symbol-errors
+gpu scenario run rdma-retry-storm
+gpu scenario run ib-congestion
 gpu scenario reset
 ```
 
@@ -186,7 +194,7 @@ gpu nvidia-smi \
 
 `nvidia-smi`는 GPU Lab release에 포함된 호환 명령입니다. 실제 NVIDIA driver나 CUDA를 호출하지 않고 Prometheus의 synthetic metric을 표시하므로, 실제 장비의 `nvidia-smi`와 동일한 성능·device file·driver 정보는 제공하지 않습니다.
 
-`ibstat`, `ibstatus`, `ibv_devinfo`도 release와 runtime image에 같은 이름으로 포함됩니다. 호스트에서는 `--node` GPU Lab 확장 옵션으로 worker를 선택하고, exporter Pod 안에서는 옵션 없이 실제 명령처럼 실행합니다. 출력 형식과 rdma-core 옵션은 호환하지만 `/dev/infiniband`나 실제 verbs context를 생성하지는 않습니다.
+`ibstat`, `ibstatus`, `ibv_devinfo`도 release와 runtime image에 같은 이름으로 포함됩니다. 호스트에서는 `--node` GPU Lab 확장 옵션으로 worker를 선택하고, exporter Pod 안에서는 옵션 없이 실제 명령처럼 실행합니다. 세 명령 모두 출력 형식을 실제 rdma-core 명령에 가깝게 맞춘 lab 구현이며(`/dev/infiniband`나 실제 verbs context는 생성하지 않습니다), rdma-core v56.0 원전에 대한 전수 대조 검증은 ibstat만 수행했습니다.
 
 Grafana 접근 방식은 설치된 Helm chart의 Service를 확인합니다.
 

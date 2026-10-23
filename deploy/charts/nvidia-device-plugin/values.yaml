@@ -3,5 +3,13 @@ imagePullPolicy: IfNotPresent
 gpuCount: 8
 resourceName: nvidia.com/gpu
 
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    cpu: 100m
+    memory: 256Mi
+
 nodeSelector:
   gpu.lab/type: fake

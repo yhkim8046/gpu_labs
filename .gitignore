@@ -8,6 +8,12 @@ bin/
 dist/
 coverage.out
 
+# Compiled binaries at repo root (make build / ad-hoc builds)
+/gpu-lab
+/ibstat
+/ibstatus
+/nvidia-smi
+
 # Local lab state
 .gpu-lab/
 .kind/
@@ -19,3 +25,6 @@ coverage.out
 # Generated files
 deploy/generated/
 docs/generated/
+
+# Standalone Sites project (nested Git repository)
+/site/

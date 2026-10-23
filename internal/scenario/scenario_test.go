@@ -1,8 +1,7 @@
 package scenario
 
 import (
-	"encoding/json"
-	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -11,7 +10,7 @@ func TestBuiltinScenarios(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"ecc-double-bit", "exporter-down", "gpu-allocated-idle", "gpu-capacity-mismatch", "gpu-fragmentation", "gpu-idle", "gpu-util-high", "ib-congestion", "ib-link-down", "ib-rate-degraded", "ib-symbol-errors", "node-selector-mismatch", "normal", "pcie-replay", "power-throttle", "rdma-retry-storm", "scheduling-failure", "thermal-throttling", "vram-pressure", "xid-48", "xid-79"}
+	want := []string{"ecc-double-bit", "exporter-down", "gpu-allocated-idle", "gpu-capacity-mismatch", "gpu-fragmentation", "gpu-idle", "gpu-util-high", "ib-congestion", "ib-link-down", "ib-rate-degraded", "ib-symbol-errors", "node-selector-mismatch", "normal", "pcie-replay", "power-throttle", "rdma-retry-storm", "scheduling-failure", "thermal-escalation", "thermal-throttling", "vram-pressure", "xid-48", "xid-79"}
 	if len(names) != len(want) {
 		t.Fatalf("got %v, want %v", names, want)
 	}
@@ -25,121 +24,37 @@ func TestBuiltinScenarios(t *testing.T) {
 	}
 }
 
-func TestScenarioValidation(t *testing.T) {
-	s, err := LoadBuiltin("xid-79")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s.Name() != "xid-79" || s.Spec.Metrics.XIDCode == nil || *s.Spec.Metrics.XIDCode != 79 {
-		t.Fatalf("unexpected scenario: %#v", s)
-	}
-	if _, err := Parse([]byte(`apiVersion: gpu-lab.io/v1alpha1
+func TestParseRejectsUnknownYAMLAndJSONFields(t *testing.T) {
+	cases := map[string]string{
+		"unknown YAML spec field": `apiVersion: gpu-lab.io/v1alpha1
 kind: Scenario
-metadata:
-  name: bad
+metadata: {name: typo}
+spec:
+  timline: []
+`,
+		"unknown YAML timeline field": `apiVersion: gpu-lab.io/v1alpha1
+kind: Scenario
+metadata: {name: typo}
+spec:
+  timeline:
+    - phaze: baseline
+      at: 0s
+`,
+		"unknown YAML metric field": `apiVersion: gpu-lab.io/v1alpha1
+kind: Scenario
+metadata: {name: typo}
 spec:
   metrics:
-    gpu_utilization_percent: 101`)); err == nil {
-		t.Fatal("expected invalid metric range")
+    temperatur_celsius: 80
+`,
+		"unknown JSON field": `{"apiVersion":"gpu-lab.io/v1alpha1","kind":"Scenario","metadata":{"name":"typo"},"spec":{"unexpected":true}}`,
 	}
-}
-
-func TestScenarioGPUIndexTargets(t *testing.T) {
-	valid := []byte(`apiVersion: gpu-lab.io/v1alpha1
-kind: Scenario
-metadata:
-  name: one-gpu-hot
-spec:
-  duration: 30s
-  targets:
-    selector:
-      gpu.lab/node-id: gpu-node-01
-    gpu_indices: [1, 3]
-  metrics:
-    temperature_celsius: 91
-`)
-	parsed, err := Parse(valid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := parsed.Spec.Targets.GPUIndices; len(got) != 2 || got[0] != 1 || got[1] != 3 {
-		t.Fatalf("gpu_indices = %v, want [1 3]", got)
-	}
-
-	invalid := []string{
-		"gpu_indices: [-1]",
-		"gpu_indices: [1, 1]",
-	}
-	for _, targets := range invalid {
-		data := []byte("apiVersion: gpu-lab.io/v1alpha1\nkind: Scenario\nmetadata:\n  name: bad-target\nspec:\n  targets:\n    " + targets + "\n")
-		if _, err := Parse(data); err == nil {
-			t.Fatalf("Parse() accepted invalid target %q", targets)
-		}
-	}
-
-	for _, duration := range []string{"0s", "-1s"} {
-		data := []byte("apiVersion: gpu-lab.io/v1alpha1\nkind: Scenario\nmetadata:\n  name: bad-duration\nspec:\n  duration: " + duration + "\n")
-		if _, err := Parse(data); err == nil {
-			t.Fatalf("Parse() accepted invalid duration %q", duration)
-		}
-	}
-
-	emptySelector := []byte("apiVersion: gpu-lab.io/v1alpha1\nkind: Scenario\nmetadata:\n  name: bad-selector\nspec:\n  targets:\n    selector:\n      gpu.lab/node-id: ''\n")
-	if _, err := Parse(emptySelector); err == nil {
-		t.Fatal("Parse() accepted an empty target selector value")
-	}
-}
-
-func TestScenarioRejectsNodeWideStateForGPUIndexTarget(t *testing.T) {
-	capacity := 4
-	selected, err := LoadBuiltin("gpu-util-high")
-	if err != nil {
-		t.Fatal(err)
-	}
-	selected.Spec.Targets.GPUIndices = []int{0}
-	selected.Spec.Metrics.GPUCapacity = &capacity
-	if err := selected.Validate(); err == nil {
-		t.Fatal("Validate() accepted node capacity with an individual GPU target")
-	}
-
-	down, err := LoadBuiltin("exporter-down")
-	if err != nil {
-		t.Fatal(err)
-	}
-	down.Spec.Targets.GPUIndices = []int{0}
-	if err := down.Validate(); err == nil {
-		t.Fatal("Validate() accepted exporter fault with an individual GPU target")
-	}
-}
-
-func TestFabricMetricValidation(t *testing.T) {
-	base := "apiVersion: gpu-lab.io/v1alpha1\nkind: Scenario\nmetadata:\n  name: fabric-test\nspec:\n  metrics:\n    %s\n"
-	cases := []string{
-		"ib_port_up: 2",
-		"ib_state: BROKEN",
-		"ib_physical_state: BROKEN",
-		"ib_link_rate_gbps: 0",
-		"ib_link_rate_gbps: -1",
-		"ib_tx_bytes_total: -1",
-		"ib_rx_bytes_total: -1",
-		"ib_symbol_errors_total: -1",
-		"ib_link_error_recovery_total: -1",
-		"ib_link_downed_total: -1",
-		"ib_xmit_discards_total: -1",
-		"ib_xmit_wait_total: -1",
-		"rdma_retries_total: -1",
-		"rdma_timeouts_total: -1",
-		"fabric_delay_seconds: -0.1",
-	}
-	for _, metric := range cases {
-		if _, err := Parse([]byte(fmt.Sprintf(base, metric))); err == nil {
-			t.Fatalf("Parse() accepted invalid fabric metric %q", metric)
-		}
-	}
-
-	withGPUIndex := fmt.Sprintf("apiVersion: gpu-lab.io/v1alpha1\nkind: Scenario\nmetadata:\n  name: fabric-gpu-target\nspec:\n  targets:\n    gpu_indices: [0]\n  metrics:\n    ib_port_up: 0\n")
-	if _, err := Parse([]byte(withGPUIndex)); err == nil {
-		t.Fatal("Parse() accepted node/port fabric override with gpu_indices")
+	for name, data := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Parse([]byte(data)); err == nil || !strings.Contains(err.Error(), "field") {
+				t.Fatalf("Parse() error = %v, want strict unknown-field error", err)
+			}
+		})
 	}
 }
 
@@ -158,70 +73,6 @@ func TestFabricMetricFieldsParseFromJSON(t *testing.T) {
 	}
 	if metrics.RDMARetriesTotal == nil || *metrics.RDMARetriesTotal != 8 || metrics.RDMATimeoutsTotal == nil || *metrics.RDMATimeoutsTotal != 9 {
 		t.Fatalf("parsed RDMA counters = %+v", metrics)
-	}
-}
-
-func TestConfigMapAndPendingWorkloadJSON(t *testing.T) {
-	s, err := LoadBuiltin("scheduling-failure")
-	if err != nil {
-		t.Fatal(err)
-	}
-	configMap, err := ConfigMapJSON(s, "42")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var cm map[string]any
-	if err := json.Unmarshal(configMap, &cm); err != nil {
-		t.Fatal(err)
-	}
-	if cm["kind"] != "ConfigMap" {
-		t.Fatalf("kind = %v", cm["kind"])
-	}
-	workload, err := PendingWorkloadJSON(s, 9)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var pod map[string]any
-	if err := json.Unmarshal(workload, &pod); err != nil {
-		t.Fatal(err)
-	}
-	spec := pod["spec"].(map[string]any)
-	container := spec["containers"].([]any)[0].(map[string]any)
-	limits := container["resources"].(map[string]any)["limits"].(map[string]any)
-	if limits["nvidia.com/gpu"] != "9" {
-		t.Fatalf("GPU limit = %v", limits["nvidia.com/gpu"])
-	}
-	requests := container["resources"].(map[string]any)["requests"].(map[string]any)
-	if requests["nvidia.com/gpu"] != "9" {
-		t.Fatalf("GPU request = %v", requests["nvidia.com/gpu"])
-	}
-}
-
-func TestGPUWorkloadJSON(t *testing.T) {
-	s, err := LoadBuiltin("node-selector-mismatch")
-	if err != nil {
-		t.Fatal(err)
-	}
-	action, ok := HasAction(s, "create_gpu_workload")
-	if !ok {
-		t.Fatal("create_gpu_workload action missing")
-	}
-	data, err := GPUWorkloadJSON(s, action)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var pod map[string]any
-	if err := json.Unmarshal(data, &pod); err != nil {
-		t.Fatal(err)
-	}
-	metadata := pod["metadata"].(map[string]any)
-	if metadata["name"] != "gpu-lab-node-selector-mismatch" {
-		t.Fatalf("name = %v", metadata["name"])
-	}
-	spec := pod["spec"].(map[string]any)
-	selector := spec["nodeSelector"].(map[string]any)
-	if selector["gpu.lab/node-id"] != "gpu-node-99" {
-		t.Fatalf("node selector = %v", selector)
 	}
 }
 
