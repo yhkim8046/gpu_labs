@@ -49,6 +49,10 @@ if [[ -n "${GPU_LAB_TRAINING_IMAGE:-}" ]]; then
   training_args+=(--image "$GPU_LAB_TRAINING_IMAGE")
 fi
 gpu training "${training_args[@]}"
+# The replacement Pods are now ready. Only samples scraped after this point
+# may establish progress; the deleted job could have had a much larger step.
+GPU_LAB_E2E_SAMPLES_SINCE="$(python3 -c 'import time; print(time.time())')"
+export GPU_LAB_E2E_SAMPLES_SINCE
 
 ready="$(kubectl --context gpu-lab --request-timeout=10s -n "$namespace" get statefulset gpu-lab-training -o jsonpath='{.status.readyReplicas}')"
 [[ "$ready" == "3" ]]

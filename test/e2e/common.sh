@@ -60,13 +60,14 @@ gpu_e2e_guarded_query() {
   local selector="${1:?Prometheus selector is required}"
   local expression="${2:?Prometheus expression is required}"
   local max_age="${3:-30}"
+  local samples_since="${GPU_LAB_E2E_SAMPLES_SINCE:-0}"
   local samples guard="" check
 
   # Each newline-delimited selector names one metric. timestamp() removes
   # __name__, so combining metric families first would create label collisions.
   while IFS= read -r samples; do
     [[ -n "$samples" ]] || continue
-    check="(count($samples) > 0) and (count(($samples) < +Inf) == count($samples)) and (count(($samples) > -Inf) == count($samples)) and (time() - max(timestamp($samples)) >= 0) and (time() - min(timestamp($samples)) <= $max_age)"
+    check="(count($samples) > 0) and (count(($samples) < +Inf) == count($samples)) and (count(($samples) > -Inf) == count($samples)) and (time() - max(timestamp($samples)) >= 0) and (time() - min(timestamp($samples)) <= $max_age) and (min(timestamp($samples)) >= $samples_since)"
     guard="${guard:+$guard and }$check"
   done <<<"$selector"
   printf '((%s) and (%s))\n' "$expression" "$guard"
@@ -174,7 +175,7 @@ gpu_wait_metric_increase() {
       fi
     fi
     if (( SECONDS >= deadline )); then
-      echo "timed out after ${timeout}s waiting for fresh monotonic progress: $description" >&2
+      echo "timed out after ${timeout}s waiting for fresh monotonic progress: $description (baseline=$previous, latest=${value:-unavailable})" >&2
       cat "$error_file" >&2
       rm -f -- "$error_file"
       return 1

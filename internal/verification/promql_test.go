@@ -99,6 +99,16 @@ func TestPromQLRegression(t *testing.T) {
 	memoryInput = append([]series(nil), memoryInput...)
 	memoryInput[0].Values = "20 20"
 	cases = append(cases, testCase{Name: "multi-metric E2E freshness rejects stale samples", Interval: "1s", Input: memoryInput, Expressions: []expression{{string(query), "45s", []sample{}}}})
+	// Recent samples from a deleted workload are fresh by age alone. They
+	// must not establish the initial progress baseline for its replacement.
+	command = exec.Command("bash", "-c", `source "$1"; GPU_LAB_E2E_SAMPLES_SINCE=10 gpu_e2e_guarded_query "$2" "$3" 30`, "promql-test", helper, selector, memory)
+	query, err = command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generate workload-scoped query: %v: %s", err, query)
+	}
+	cases = append(cases, testCase{Name: "recent previous workload is rejected", Interval: "1s", Input: memoryInput, Expressions: []expression{{string(query), "12s", []sample{}}}})
+	currentWorkload := []series{{`gpu_lab_gpu_memory_used_bytes{node="n",gpu="0"}`, "20+0x60"}, {`gpu_lab_gpu_memory_total_bytes{node="n",gpu="0"}`, "100+0x60"}}
+	cases = append(cases, testCase{Name: "replacement workload samples accepted", Interval: "1s", Input: currentWorkload, Expressions: []expression{{string(query), "12s", []sample{{"{}", 0}}}}})
 	data, err := json.MarshalIndent(map[string]any{"evaluation_interval": "1s", "tests": cases}, "", "  ")
 	if err != nil {
 		t.Fatal(err)
